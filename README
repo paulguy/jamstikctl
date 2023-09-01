@@ -1,0 +1,28 @@
+    ____   ____
+ ,-|  / ""\ ,--"__________ v_v_v
+|_|| |:|=|:|_M|S|T|I|K| | |C T L)
+ \_|_|_---_|==‾‾‾‾‾‾‾‾‾‾‾‾ ^‾^‾^
+
+jamstikctl - Control parameters of Zivix Jamstik MIDI guitars.
+
+BUILDING
+--------
+Needs:
+    A jack library, tested with pipewire-jack.
+    json-c
+
+    and of course, development headers/libs for these things and all the other
+    usual stuff you need for C development
+
+Should just work typing `make`.
+
+USING
+-----
+Not much to use yet, just run it but it doesn't do anything other than testing
+communication once connected.
+
+KNOWN ISSUES
+------------
+Automatically connecting to the guitar device fails requiring the user to
+connect it to the application manually.  I don't know if this is my issue or
+an issue with pipewire-jack.
