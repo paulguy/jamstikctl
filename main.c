@@ -128,11 +128,13 @@ int term_setup() {
 int main(int argc, char **argv) {
     size_t size;
     unsigned char buffer[MIDI_MAX_BUFFER_SIZE];
-    unsigned int i;
+    unsigned int i, j;
     const char *inport;
     const char *outport;
-    SchemaItem *schema;
     unsigned int schema_count;
+    SchemaItem *schema;
+    unsigned int category_count;
+    char **categories;
 
     fprintf(stderr, "Setting up JACK...\n");
 
@@ -171,10 +173,12 @@ int main(int argc, char **argv) {
                         JACK_NAME, OUTPORT_NAME, inport);
     }
 
+    /*  only use for interactive mode
     if(term_setup() < 0) {
         fprintf(stderr, "Failed to setup terminal.\n");
         goto error_midi_cleanup;
     }
+    */
 
     while(!midi_ready() && midi_activated()) {
         usleep(1000000);
@@ -261,12 +265,43 @@ int main(int argc, char **argv) {
                             if(schema == NULL) {
                                 fprintf(stderr, "Failed to parse schema.\n");
                             }
+                            category_count = 0;
+                            categories = NULL;
+                            int found;
+                            char **tmp;
                             for(i = 0; i < schema_count; i++) {
-                                printf("%s\n", schema[i].CC);
-                            }
-                            free(schema);
+                                found = 0;
+                                for(j = 0; j < category_count; j++) {
+                                    if(strcmp(schema[i].Cat, categories[j]) == 0) {
+                                        found = 1;
+                                        break;
+                                    }
+                                }
+                                if(found) {
+                                    continue;
+                                }
 
-                            fprintf(stderr, "\n");
+                                tmp = realloc(categories, (category_count + 1) * sizeof(char *));
+                                if(tmp == NULL) {
+                                    fprintf(stderr, "Failed to allocate memory for categories list.\n");
+                                    goto error_term_cleanup;
+                                }
+                                categories = tmp;
+                                categories[category_count] = schema[i].Cat;
+                                category_count++;
+                            }
+
+                            for(i = 0; i < category_count; i++) {
+                                printf("Category: %s\n", categories[i]);
+                                for(j = 0; j < schema_count; j++) {
+                                    if(strcmp(categories[i], schema[j].Cat) == 0) {
+                                        printf("  ");
+                                        schema_print_item(&(schema[j]));
+                                    }
+                                }
+                            }
+                            fflush(stdout);
+                            free(schema);
                         } else {
                             print_hex(size, buffer);
                         }

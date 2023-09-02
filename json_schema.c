@@ -5,6 +5,36 @@
 #include "json_schema.h"
 #include "midi.h"
 
+typedef enum {
+    stt7bitByte = 0,
+    stt8bitByte,
+    sttUInt32,
+    sttSInt32,
+    stt7bitASCII,
+    stt8bitASCII,
+    sttSInt16,
+    sttUInt16,
+    sttSInt64,
+    sttUInt64
+} schema_transfer_type;
+
+typedef enum {
+    ttCheckbox = 0,
+    ttSpin,
+    ttManualEntryDecimal,
+    ttReadOnlyHex,
+    ttReadOnlyDecimal
+} schema_control_type;
+
+#define SF_ENGINEERING (1)
+#define SF_ADVANCED (2)
+#define SF_CRITICAL (4)
+#define SF_BETA (8)
+#define SF_NEVERSHOW (16)
+#define SF_WIFIONLY (32)
+#define SF_BTONLY (64)
+#define SF_MAX_FLAG SF_BTONLY
+
 json_object *json_tokenize_whole_string(size_t len, const char *buffer) {
     json_tokener *tok = json_tokener_new();
     json_object *jobj = NULL;
@@ -153,4 +183,93 @@ error_put_json:
     json_object_put(jobj);
 error:
     return(NULL);
+}
+
+const char *schema_type_to_name(int type) {
+    switch(type) {
+        case stt7bitByte:
+            return("unsigned 7 bit");
+        case stt8bitByte:
+            return("unsigned 8 bit (2 byte packed)");
+        case sttUInt32:
+            return("unsigned 32 bit (5 byte packed)");
+        case sttSInt32:
+            return("signed 32 bit (5 byte packed)");
+        case stt7bitASCII:
+            return("7 bit ASCII");
+        case stt8bitASCII:
+            return("8 bit ASCII (packed)");
+        case sttSInt16:
+            return("signed 16 bit (3 byte packed)");
+        case sttUInt16:
+            return("unsigned 16 bit (3 byte packed)");
+        case sttSInt64:
+            return("signed 64 bit (9 byte packed ?)");
+        case sttUInt64:
+            return("unsigned 64 bit (9 byte packed ?)");
+    }
+
+    return("unknown");
+}
+
+const char *schema_control_to_name(int control) {
+    switch(control) {
+        case ttCheckbox:
+            return("Checkbox");
+        case ttSpin:
+            return("Spinner");
+        case ttManualEntryDecimal:
+            return("Decimal Entry");
+        case ttReadOnlyHex:
+            return("Hex Display");
+        case ttReadOnlyDecimal:
+            return("Decimal Display");
+    }
+
+    return("unknown");
+}
+
+const char *schema_flag_to_name(int flag) {
+    switch(flag) {
+        case 0:
+            return("");
+        case SF_ENGINEERING:
+            return("Engineering");
+        case SF_ADVANCED:
+            return("Advanced");
+        case SF_CRITICAL:
+            return("Critical-Function");
+        case SF_BETA:
+            return("Beta-Feature");
+        case SF_NEVERSHOW:
+            return("Never-Show");
+        case SF_WIFIONLY:
+            return("Wifi-Devices-Only");
+        case SF_BTONLY:
+            return("Bluetooth-Devices--Only");
+    }
+
+    return("unknown");
+}
+
+void schema_print_item(SchemaItem *item) {
+    unsigned int i;
+
+    printf("Name: %s", item->CC);
+    if(item->Desc != NULL && strcmp(item->CC, item->Desc) != 0) {
+        printf("  Description: %s", item->Desc);
+    }
+    printf("  Type: %s", schema_type_to_name(item->Typ));
+    if(item->Lo != item->Hi) {
+        printf("  Low: %d  Hi: %d", item->Lo, item->Hi);
+    }
+    if(item->Step > 0) {
+        printf("  Step: %d", item->Step);
+    }
+    printf("  Control: %s", schema_control_to_name(item->TT));
+    printf("  Flags:");
+    for(i = 1; i <= SF_MAX_FLAG; i <<= 1) {
+        printf(" %s", schema_flag_to_name(item->F & i));
+    }
+    printf("\n");
 }
