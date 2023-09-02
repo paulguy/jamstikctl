@@ -72,23 +72,32 @@ void term_cleanup() {
     if(sigaction(SIGHUP, &ohup, NULL) != 0 ||
        sigaction(SIGINT, &oint, NULL) != 0 ||
        sigaction(SIGTERM, &oterm, NULL) != 0) {
-        fprintf(stderr, "Failed to reset signal handlers.\n");
+        fprintf(stderr, "Failed to set signal handler.\n");
+    }
+}
+
+static void term_cleanup_handler(int signum) {
+    term_cleanup();
+    if(signum == SIGHUP && ohup.sa_handler != NULL) {
+        ohup.sa_handler(signum);
+    } else if(signum == SIGINT && oint.sa_handler != NULL) {
+        oint.sa_handler(signum);
+    } else if(signum == SIGTERM && oterm.sa_handler != NULL) {
+        oterm.sa_handler(signum);
     }
 }
 
 int term_setup() {
     struct sigaction sa;
-    sa.sa_handler = term_cleanup;
+    sa.sa_handler = term_cleanup_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
 
     struct termios new_termios;
-    int ret;
 
     stdout_fd = fileno(stdout);
 
-    ret = tcgetattr(stdout_fd, &original_termios);
-    if(ret < 0) {
+    if(tcgetattr(stdout_fd, &original_termios) < 0) {
         fprintf(stderr, "Couldn't get termios: %s\n", strerror(errno));
         return(-1);
     }
@@ -101,9 +110,10 @@ int term_setup() {
 
     memcpy(&new_termios, &original_termios, sizeof(struct termios));
     cfmakeraw(&new_termios);
+    /* allow stuff like CTRL+C to work */
+    new_termios.c_lflag |= ISIG;
 
-    ret = tcsetattr(stdout_fd, TCSADRAIN, &new_termios);
-    if(ret < 0) {
+    if(tcsetattr(stdout_fd, TCSADRAIN, &new_termios) < 0) {
         fprintf(stderr, "Couldn't set termios: %s\n", strerror(errno));
         return(-1);
     }
@@ -126,7 +136,7 @@ int main(int argc, char **argv) {
 
     fprintf(stderr, "Setting up JACK...\n");
 
-    if(midi_setup(JACK_NAME, INPORT_NAME, OUTPORT_NAME, pthread_self(), term_cleanup) < 0) {
+    if(midi_setup(JACK_NAME, INPORT_NAME, OUTPORT_NAME, pthread_self()) < 0) {
         fprintf(stderr, "Failed to set up JACK.\n");
         goto error;
     }
@@ -151,6 +161,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Failed to connect output port.\n");
     }
 
+    /* if the above calls succeed (which I haven't seen happen, yet) this might be a bit racey */
     if(!midi_ready()) {
         fprintf(stderr, "One or more connections failed to connect automatically, "
                         "they must be connected manually.\n"
@@ -161,7 +172,7 @@ int main(int argc, char **argv) {
     }
 
     if(term_setup() < 0) {
-        fprintf(stderr, "Failed to setup terminal.");
+        fprintf(stderr, "Failed to setup terminal.\n");
         goto error_midi_cleanup;
     }
 
@@ -269,8 +280,6 @@ int main(int argc, char **argv) {
             usleep(1000000);
         }
     }
-
-    term_cleanup();
 
     return(EXIT_SUCCESS);
 

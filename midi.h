@@ -9,8 +9,7 @@ char *midi_copy_string(const char *src);
 
 int midi_setup(const char *client_name,
                const char *inport_name, const char *outport_name,
-               pthread_t pid,
-               void (*original_handler)(void));
+               pthread_t pid);
 char *midi_find_port(const char *pattern, unsigned long flags);
 int midi_ready();
 void midi_cleanup();

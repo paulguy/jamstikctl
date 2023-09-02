@@ -46,7 +46,6 @@ typedef struct {
     struct sigaction oint;
     struct sigaction oterm;
     struct sigaction ousr1;
-    void (*original_handler)(void);
 } ThreadCTX;
 
 /* must be global so signal handlers work. */
@@ -111,12 +110,13 @@ void midi_cleanup() {
 
     if(sigaction(SIGHUP, &(tctx.ohup), NULL) != 0 ||
        sigaction(SIGINT, &(tctx.oint), NULL) != 0 ||
-       sigaction(SIGTERM, &(tctx.oterm), NULL) != 0 ||
-       sigaction(SIGUSR1, &(tctx.ousr1), NULL) != 0) {
+       sigaction(SIGTERM, &(tctx.oterm), NULL) != 0) {
+        fprintf(stderr, "Failed to set signal handler.\n");
+    }
+    if(sigaction(SIGUSR1, &(tctx.ousr1), NULL) != 0) {
         fprintf(stderr, "Failed to reset signal handlers.\n");
     }
 
-    tctx.activated = 0;
     if(tctx.this_inport_name != NULL) {
         free(tctx.this_inport_name);
         tctx.this_inport_name = NULL;
@@ -133,11 +133,19 @@ void midi_cleanup() {
         free(tctx.guitar_outport_name);
         tctx.guitar_outport_name = NULL;
     }
+
+    tctx.activated = 0;
 }
 
 static void _midi_cleanup_handler(int signum) {
     midi_cleanup();
-    tctx.original_handler();
+    if(signum == SIGHUP && tctx.ohup.sa_handler != NULL) {
+        tctx.ohup.sa_handler(signum);
+    } else if(signum == SIGINT && tctx.oint.sa_handler != NULL) {
+        tctx.oint.sa_handler(signum);
+    } else if(signum == SIGTERM && tctx.oterm.sa_handler != NULL) {
+        tctx.oterm.sa_handler(signum);
+    }
 }
 
 static void _midi_usr1_handler(int signum) {
@@ -427,8 +435,7 @@ int midi_ready() {
 
 int midi_setup(const char *client_name,
                const char *inport_name, const char *outport_name,
-               pthread_t pid,
-               void (*original_handler)(void)) {
+               pthread_t pid) {
     /* jack stuff */
     jack_status_t jstatus;
     struct sigaction sa;
@@ -449,7 +456,6 @@ int midi_setup(const char *client_name,
     tctx.outEv.next_event = 0;
     tctx.outEv.rb = NULL;
     tctx.outEv.sysex = 0;
-    tctx.original_handler = original_handler;
 
     tctx.jack = jack_client_open(client_name, JackNoStartServer, &jstatus);
     if(tctx.jack == NULL) {
