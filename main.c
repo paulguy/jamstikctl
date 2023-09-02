@@ -24,6 +24,11 @@
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <termios.h>
+#include <errno.h>
+
+#include <curses.h>
+#include <term.h>
 
 #include <json-c/json.h>
 
@@ -38,6 +43,12 @@ const char OUTPORT_NAME[] = "Guitar Out";
 #define SCHEMA_TAIL (2)
 #define SCHEMA_EXCESS (SCHEMA_START + SCHEMA_TAIL)
 
+int stdout_fd;
+struct termios original_termios;
+struct sigaction ohup;
+struct sigaction oint;
+struct sigaction oterm;
+
 char *read_file(size_t *len, const char *name) {
     FILE *in = fopen(name, "r");
     fseek(in, 0, SEEK_END);
@@ -48,6 +59,60 @@ char *read_file(size_t *len, const char *name) {
     fclose(in);
 
     return(buf);
+}
+
+void term_cleanup() {
+    int ret;
+
+    ret = tcsetattr(stdout_fd, TCSADRAIN, &original_termios);
+    if(ret < 0) {
+        fprintf(stderr, "Couldn't reset termios: %s\n", strerror(errno));
+    }
+
+    if(sigaction(SIGHUP, &ohup, NULL) != 0 ||
+       sigaction(SIGINT, &oint, NULL) != 0 ||
+       sigaction(SIGTERM, &oterm, NULL) != 0) {
+        fprintf(stderr, "Failed to reset signal handlers.\n");
+    }
+}
+
+int term_setup() {
+    struct sigaction sa;
+    sa.sa_handler = term_cleanup;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    struct termios new_termios;
+    int ret;
+
+    stdout_fd = fileno(stdout);
+
+    ret = tcgetattr(stdout_fd, &original_termios);
+    if(ret < 0) {
+        fprintf(stderr, "Couldn't get termios: %s\n", strerror(errno));
+        return(-1);
+    }
+
+    if(sigaction(SIGHUP, &sa, &ohup) != 0 ||
+       sigaction(SIGINT, &sa, &oint) != 0 ||
+       sigaction(SIGTERM, &sa, &oterm) != 0) {
+        fprintf(stderr, "Failed to set signal handler.\n");
+    }
+
+    memcpy(&new_termios, &original_termios, sizeof(struct termios));
+    cfmakeraw(&new_termios);
+
+    ret = tcsetattr(stdout_fd, TCSADRAIN, &new_termios);
+    if(ret < 0) {
+        fprintf(stderr, "Couldn't set termios: %s\n", strerror(errno));
+        return(-1);
+    }
+
+    if(setupterm(NULL, stdout_fd, NULL) == ERR) {
+        return(-1);
+    }
+
+    return(0);
 }
 
 int main(int argc, char **argv) {
@@ -63,7 +128,7 @@ int main(int argc, char **argv) {
 
     if(midi_setup(JACK_NAME, INPORT_NAME, OUTPORT_NAME, pthread_self()) < 0) {
         fprintf(stderr, "Failed to set up JACK.\n");
-        return(EXIT_FAILURE);
+        goto error;
     }
 
     fprintf(stderr, "JACK client activated...\n");
@@ -71,12 +136,12 @@ int main(int argc, char **argv) {
     inport = midi_find_port(".*Jamstik MIDI IN$", JackPortIsInput);
     if(inport == NULL) {
         fprintf(stderr, "Failed to find input port.\n");
-        goto error;
+        goto error_midi_cleanup;
     }
     outport = midi_find_port(".*Jamstik MIDI IN$", JackPortIsOutput);
     if(outport == NULL) {
         fprintf(stderr, "Failed to find output port.\n");
-        goto error;
+        goto error_midi_cleanup;
     }
 
     if(midi_attach_in_port_by_name(outport) < 0) {
@@ -93,6 +158,11 @@ int main(int argc, char **argv) {
                         "%s\nto\n%s:%s\nand\n%s:%s\nto\n%s\n",
                         outport, JACK_NAME, INPORT_NAME,
                         JACK_NAME, OUTPORT_NAME, inport);
+    }
+
+    if(term_setup() < 0) {
+        fprintf(stderr, "Failed to setup terminal.");
+        goto error_midi_cleanup;
     }
 
     while(!midi_ready() && midi_activated()) {
@@ -200,9 +270,14 @@ int main(int argc, char **argv) {
         }
     }
 
+    term_cleanup();
+
     return(EXIT_SUCCESS);
 
-error:
+error_term_cleanup:
+    term_cleanup();
+error_midi_cleanup:
     midi_cleanup();
+error:
     return(EXIT_FAILURE);
 }

@@ -86,20 +86,20 @@ int midi_activated() {
 }
 
 void midi_cleanup() {
-    if(tctx.inEv.rb != NULL) {
-        jack_ringbuffer_free(tctx.inEv.rb);
-    }
-
-    if(tctx.outEv.rb != NULL) {
-        jack_ringbuffer_free(tctx.outEv.rb);
-    }
-
     if(tctx.activated) {
         if(jack_deactivate(tctx.jack)) {
             fprintf(stderr, "Failed to deactivate JACK client.\n");
         } else {
             fprintf(stderr, "JACK client deactivated.\n");
         }
+    }
+
+    if(tctx.inEv.rb != NULL) {
+        jack_ringbuffer_free(tctx.inEv.rb);
+    }
+
+    if(tctx.outEv.rb != NULL) {
+        jack_ringbuffer_free(tctx.outEv.rb);
     }
 
     if(jack_client_close(tctx.jack)) {
