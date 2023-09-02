@@ -46,6 +46,7 @@ typedef struct {
     struct sigaction oint;
     struct sigaction oterm;
     struct sigaction ousr1;
+    void (*original_handler)(void);
 } ThreadCTX;
 
 /* must be global so signal handlers work. */
@@ -136,6 +137,7 @@ void midi_cleanup() {
 
 static void _midi_cleanup_handler(int signum) {
     midi_cleanup();
+    tctx.original_handler();
 }
 
 static void _midi_usr1_handler(int signum) {
@@ -425,7 +427,8 @@ int midi_ready() {
 
 int midi_setup(const char *client_name,
                const char *inport_name, const char *outport_name,
-               pthread_t pid) {
+               pthread_t pid,
+               void (*original_handler)(void)) {
     /* jack stuff */
     jack_status_t jstatus;
     struct sigaction sa;
@@ -446,6 +449,7 @@ int midi_setup(const char *client_name,
     tctx.outEv.next_event = 0;
     tctx.outEv.rb = NULL;
     tctx.outEv.sysex = 0;
+    tctx.original_handler = original_handler;
 
     tctx.jack = jack_client_open(client_name, JackNoStartServer, &jstatus);
     if(tctx.jack == NULL) {

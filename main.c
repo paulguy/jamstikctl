@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
 
     fprintf(stderr, "Setting up JACK...\n");
 
-    if(midi_setup(JACK_NAME, INPORT_NAME, OUTPORT_NAME, pthread_self()) < 0) {
+    if(midi_setup(JACK_NAME, INPORT_NAME, OUTPORT_NAME, pthread_self(), term_cleanup) < 0) {
         fprintf(stderr, "Failed to set up JACK.\n");
         goto error;
     }
