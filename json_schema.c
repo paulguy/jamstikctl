@@ -6,19 +6,6 @@
 #include "midi.h"
 
 typedef enum {
-    stt7bitByte = 0,
-    stt8bitByte,
-    sttUInt32,
-    sttSInt32,
-    stt7bitASCII,
-    stt8bitASCII,
-    sttSInt16,
-    sttUInt16,
-    sttSInt64,
-    sttUInt64
-} schema_transfer_type;
-
-typedef enum {
     ttCheckbox = 0,
     ttSpin,
     ttManualEntryDecimal,
@@ -187,25 +174,25 @@ error:
 
 const char *schema_type_to_name(int type) {
     switch(type) {
-        case stt7bitByte:
+        case js_uint7:
             return("unsigned 7 bit");
-        case stt8bitByte:
+        case js_uint8:
             return("unsigned 8 bit (2 byte packed)");
-        case sttUInt32:
+        case js_uint32:
             return("unsigned 32 bit (5 byte packed)");
-        case sttSInt32:
+        case js_int32:
             return("signed 32 bit (5 byte packed)");
-        case stt7bitASCII:
+        case js_ascii7:
             return("7 bit ASCII");
-        case stt8bitASCII:
+        case js_ascii8:
             return("8 bit ASCII (packed)");
-        case sttSInt16:
+        case js_int16:
             return("signed 16 bit (3 byte packed)");
-        case sttUInt16:
+        case js_uint16:
             return("unsigned 16 bit (3 byte packed)");
-        case sttSInt64:
+        case js_int64:
             return("signed 64 bit (9 byte packed ?)");
-        case sttUInt64:
+        case js_uint64:
             return("unsigned 64 bit (9 byte packed ?)");
     }
 

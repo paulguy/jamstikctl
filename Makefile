@@ -1,4 +1,4 @@
-OBJS   = json_schema.o midi.o main.o
+OBJS   = packed_values.o json_schema.o midi.o main.o
 TARGET = jamstikctl
 CFLAGS = -Wall -Wextra -Wno-unused-parameter `pkg-config --cflags json-c` `pkg-config --cflags ncurses` -ggdb 
 LDFLAGS = -ljack `pkg-config --libs json-c` `pkg-config --libs ncurses`

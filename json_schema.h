@@ -3,10 +3,23 @@
 
 #include <json-c/json.h>
 
+typedef enum {
+    js_uint7 = 0,
+    js_uint8,
+    js_uint32,
+    js_int32,
+    js_ascii7,
+    js_ascii8,
+    js_int16,
+    js_uint16,
+    js_int64,
+    js_uint64
+} js_value_type;
+
 typedef struct {
     char *CC;
     char *Desc;
-    int Typ;
+    js_value_type Typ;
     int Lo;
     int Hi;
     int Step;

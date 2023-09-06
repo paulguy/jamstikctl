@@ -34,14 +34,42 @@
 
 #include "midi.h"
 #include "json_schema.h"
+#include "packed_values.h"
 
 const char JACK_NAME[] = "jamstikctl";
 const char INPORT_NAME[] = "Guitar In";
 const char OUTPORT_NAME[] = "Guitar Out";
 
-#define SCHEMA_START (13)
-#define SCHEMA_TAIL (2)
-#define SCHEMA_EXCESS (SCHEMA_START + SCHEMA_TAIL)
+#define MIDI_CMD (0)
+#define MIDI_SYSEX (0xF0)
+#define MIDI_SYSEX_DUMMY_LEN (0x55)
+#define MIDI_SYSEX_END (0xF7)
+#define MIDI_SYSEX_VENDOR (1)
+#define MIDI_SYSEX_VENDOR_LEN (3)
+#define MIDI_SYSEX_BODY (MIDI_SYSEX_VENDOR + MIDI_SYSEX_VENDOR_LEN)
+#define MIDI_SYSEX_HEAD (4)
+#define MIDI_SYSEX_TAIL (2)
+#define JS_VENDOR_0 (0x00)
+#define JS_VENDOR_1 (0x02)
+#define JS_VENDOR_2 (0x02)
+#define JS_CMD MIDI_SYSEX_BODY
+
+#define JS_CONFIG_NAME (JS_CMD + 1)
+#define JS_CONFIG_NAME_LEN (8)
+#define JS_CONFIG_TYPE (JS_CONFIG_NAME + JS_CONFIG_NAME_LEN)
+#define JS_CONFIG_VALUE (JS_CONFIG_TYPE + 1)
+#define JS_CONFIG_QUERY_LEN (JS_CONFIG_NAME + JS_CONFIG_NAME_LEN + MIDI_SYSEX_TAIL)
+#define JS_CONFIG_QUERY (0x66)
+#define JS_CONFIG_RETURN (0x61)
+#define JS_CONFIG_DONE (0x67)
+
+#define JS_SCHEMA_QUERY (0x44)
+#define JS_SCHEMA_RETURN (0x45)
+#define JS_SCHEMA_NAME JS_CONFIG_NAME
+#define JS_SCHEMA_NAME_LEN JS_CONFIG_NAME_LEN
+#define JS_SCHEMA_QUERY_LEN (JS_SCHEMA_NAME + JS_SCHEMA_NAME_LEN + MIDI_SYSEX_TAIL)
+#define JS_SCHEMA_START (JS_SCHEMA_NAME + JS_SCHEMA_NAME_LEN)
+#define JS_SCHEMA_EXCESS (JS_SCHEMA_START + MIDI_SYSEX_TAIL)
 
 int stdout_fd;
 struct termios original_termios;
@@ -112,6 +140,8 @@ int term_setup() {
     cfmakeraw(&new_termios);
     /* allow stuff like CTRL+C to work */
     new_termios.c_lflag |= ISIG;
+    /* allow printed text to not look weird */
+    new_termios.c_oflag |= OPOST;
 
     if(tcsetattr(stdout_fd, TCSADRAIN, &new_termios) < 0) {
         fprintf(stderr, "Couldn't set termios: %s\n", strerror(errno));
@@ -125,6 +155,34 @@ int term_setup() {
     return(0);
 }
 
+void build_js_sysex(char *buf, size_t len) {
+    buf[MIDI_CMD] = MIDI_SYSEX;
+    buf[MIDI_SYSEX_VENDOR] = JS_VENDOR_0;
+    buf[MIDI_SYSEX_VENDOR+1] = JS_VENDOR_1;
+    buf[MIDI_SYSEX_VENDOR+2] = JS_VENDOR_2;
+    buf[len-2] = MIDI_SYSEX_DUMMY_LEN;
+    buf[len-1] = MIDI_SYSEX_END;
+    memset(&(buf[MIDI_SYSEX_BODY]), 0, len-MIDI_SYSEX_HEAD-MIDI_SYSEX_TAIL);
+}
+
+int build_config_query(char *buf, const char *name) {
+    build_js_sysex(buf, JS_CONFIG_QUERY_LEN);
+    buf[JS_CMD] = JS_CONFIG_QUERY;
+    if(name != NULL) {
+        memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
+    }
+    return(JS_CONFIG_QUERY_LEN);
+}
+
+int build_schema_query(char *buf, const char *name) {
+    build_js_sysex(buf, JS_SCHEMA_QUERY_LEN);
+    buf[JS_CMD] = JS_SCHEMA_QUERY;
+    if(name != NULL) {
+        memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
+    }
+    return(JS_SCHEMA_QUERY_LEN);
+}
+
 int main(int argc, char **argv) {
     size_t size;
     unsigned char buffer[MIDI_MAX_BUFFER_SIZE];
@@ -135,6 +193,7 @@ int main(int argc, char **argv) {
     SchemaItem *schema;
     unsigned int category_count;
     char **categories;
+    unsigned int cur_category;
 
     fprintf(stderr, "Setting up JACK...\n");
 
@@ -185,83 +244,22 @@ int main(int argc, char **argv) {
     }
 
     if(midi_activated()) {
-        buffer[0] = 0xF0;
-        buffer[1] = 0x00;
-        buffer[2] = 0x02;
-        buffer[3] = 0x02;
-        buffer[4] = 0x44;
-        buffer[5] = 0x00;
-        buffer[6] = 0x00;
-        buffer[7] = 0x00;
-        buffer[8] = 0x00;
-        buffer[9] = 0x00;
-        buffer[10] = 0x00;
-        buffer[11] = 0x00;
-        buffer[12] = 0x00;
-        buffer[13] = 0x55;
-        buffer[14] = 0xF7;
-
-        /*
-        buffer[0] = 0xF0;
-        buffer[1] = 0x00;
-        buffer[2] = 0x02;
-        buffer[3] = 0x02;
-        buffer[4] = 0x60;
-        buffer[5] = 'H';
-        buffer[6] = 'W';
-        buffer[7] = 'D';
-        buffer[8] = 'E';
-        buffer[9] = 'V';
-        buffer[10] = 'T';
-        buffer[11] = 'Y';
-        buffer[12] = 'P';
-        buffer[13] = 0x55;
-        buffer[14] = 0xF7;
-        */
-
-        /*
-        buffer[0] = 0xf0;
-        buffer[1] = 0x00;
-        buffer[2] = 0x02;
-        buffer[3] = 0x02;
-        buffer[4] = 0x66;
-        buffer[5] = '_';
-        buffer[6] = 'B';
-        buffer[7] = 'L';
-        buffer[8] = 'E';
-        buffer[9] = '_';
-        buffer[10] = '_';
-        buffer[11] = '_';
-        buffer[12] = '_';
-        buffer[13] = 0x55;
-        buffer[14] = 0xf7;
-        */
-
-    /*
-        buffer[0] = 0xF0;
-        buffer[1] = 0x00;
-        buffer[2] = 0x02;
-        buffer[3] = 0x02;
-        buffer[4] = 0x0A;
-        buffer[5] = 0x55;
-        buffer[6] = 0xF7;
-        */
-
-        if(midi_write_event(15, buffer) < 0) {
+        size = build_schema_query(buffer, NULL);
+        if(midi_write_event(size, buffer) < 0) {
             fprintf(stderr, "Failed to write event.\n");
-            goto error;
+            goto error_midi_cleanup;
         }
 
         while(midi_activated()) {
             for(;;) {
                 size = midi_read_event(sizeof(buffer), buffer);
                 if(size > 0) {
-                    if(buffer[0] == 0xF0) {
-                        if(buffer[4] == 0x45) {
-                            buffer[size - SCHEMA_TAIL] = '\0';
-                            char *schema_json = &(buffer[SCHEMA_START]);
+                    if(buffer[MIDI_CMD] == MIDI_SYSEX) {
+                        if(buffer[JS_CMD] == JS_SCHEMA_RETURN) {
+                            buffer[size - MIDI_SYSEX_TAIL] = '\0';
+                            char *schema_json = &(buffer[JS_SCHEMA_START]);
 
-                            schema = jamstik_parse_json_schema(&schema_count, size - SCHEMA_EXCESS, schema_json);
+                            schema = jamstik_parse_json_schema(&schema_count, size - JS_SCHEMA_EXCESS, schema_json);
                             if(schema == NULL) {
                                 fprintf(stderr, "Failed to parse schema.\n");
                             }
@@ -302,6 +300,65 @@ int main(int argc, char **argv) {
                             }
                             fflush(stdout);
                             free(schema);
+
+                            cur_category = 0;
+
+                            size = build_config_query(buffer, categories[cur_category]);
+                            if(midi_write_event(size, buffer) < 0) {
+                                fprintf(stderr, "Failed to write event.\n");
+                                goto error_midi_cleanup;
+                            }
+                        } else if(buffer[JS_CMD] == JS_CONFIG_RETURN) {
+                            printf("%s ", categories[cur_category]);
+                            fwrite(&(buffer[JS_CONFIG_NAME]), JS_CONFIG_NAME_LEN, 1, stdout);
+                            switch(buffer[JS_CONFIG_TYPE]) {
+                                case js_uint7:
+                                    printf(" (uint7) %hhu\n", buffer[JS_CONFIG_VALUE]);
+                                    break;
+                                case js_uint8:
+                                    printf(" (uint8) %hhu\n", decode_packed_uint8(&(buffer[JS_CONFIG_VALUE])));
+                                    break;
+                                case js_uint32:
+                                    printf(" (uint32) %u\n", decode_packed_uint32(&(buffer[JS_CONFIG_VALUE])));
+                                    break;
+                                case js_int32:
+                                    printf(" (int32) %d\n", decode_packed_int32(&(buffer[JS_CONFIG_VALUE])));
+                                    break;
+                                case js_ascii7:
+                                    printf(" (ascii7) \"");
+                                    fwrite(&(buffer[JS_CONFIG_VALUE]), size - JS_CONFIG_VALUE - MIDI_SYSEX_TAIL, 1, stdout);
+                                    printf("\"\n");
+                                    break;
+                                case js_ascii8:
+                                    /* not implemented */
+                                    print_hex(size - JS_CONFIG_VALUE, &(buffer[JS_CONFIG_VALUE]));
+                                    break;
+                                case js_int16:
+                                    printf(" (int16) %hd\n", decode_packed_int16(&(buffer[JS_CONFIG_VALUE])));
+                                    break;
+                                case js_uint16:
+                                    printf(" (uint16) %hu\n", decode_packed_uint16(&(buffer[JS_CONFIG_VALUE])));
+                                    break;
+                                case js_int64:
+                                    printf(" (int64) %lld\n", decode_packed_int64(&(buffer[JS_CONFIG_VALUE])));
+                                    break;
+                                case js_uint64:
+                                    printf(" (uint64) %llu\n", decode_packed_uint64(&(buffer[JS_CONFIG_VALUE])));
+                                    break;
+                                default:
+                                    print_hex(size - JS_CONFIG_VALUE, &(buffer[JS_CONFIG_VALUE]));
+                            }
+                        } else if(buffer[JS_CMD] == JS_CONFIG_DONE) {
+                            cur_category += 1;
+                            if(cur_category < category_count) {
+                                size = build_config_query(buffer, categories[cur_category]);
+                                if(midi_write_event(size, buffer) < 0) {
+                                    fprintf(stderr, "Failed to write event.\n");
+                                    goto error_midi_cleanup;
+                                }
+                            } else {
+                                fprintf(stderr, "Done reading config.\n");
+                            }
                         } else {
                             print_hex(size, buffer);
                         }
