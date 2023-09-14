@@ -22,7 +22,7 @@ typedef struct {
     midi_event event[MIDI_MAX_EVENTS];
     jack_ringbuffer_t *rb;
     unsigned int next_event;
-    off_t sysex;
+    size_t sysex;
 } EventRB;
 
 typedef struct {
@@ -52,7 +52,7 @@ typedef struct {
 ThreadCTX tctx;
 
 void print_hex(size_t size, unsigned char *buffer) {
-    off_t i;
+    unsigned int i;
 
     for(i = 0; i < size; i++) {
         printf("%02X ", buffer[i]);
@@ -94,13 +94,7 @@ void midi_cleanup() {
         }
     }
 
-    if(tctx.inEv.rb != NULL) {
-        jack_ringbuffer_free(tctx.inEv.rb);
-    }
-
-    if(tctx.outEv.rb != NULL) {
-        jack_ringbuffer_free(tctx.outEv.rb);
-    }
+    tctx.activated = 0;
 
     if(jack_client_close(tctx.jack)) {
         fprintf(stderr, "Error closing JACK connection.\n");
@@ -134,7 +128,13 @@ void midi_cleanup() {
         tctx.guitar_outport_name = NULL;
     }
 
-    tctx.activated = 0;
+    if(tctx.inEv.rb != NULL) {
+        jack_ringbuffer_free(tctx.inEv.rb);
+    }
+
+    if(tctx.outEv.rb != NULL) {
+        jack_ringbuffer_free(tctx.outEv.rb);
+    }
 }
 
 static void _midi_cleanup_handler(int signum) {
@@ -259,7 +259,7 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
 
         if(tctx.outEv.sysex) {
             /* if actively sending out a packet, continue */
-            off_t to_write = event->size - tctx.outEv.sysex;
+            size_t to_write = event->size - tctx.outEv.sysex;
             to_write = nframes < to_write ? nframes : to_write;
             if(jack_midi_event_write(out, 0,
                                      &(event->buffer[tctx.outEv.sysex]),
@@ -311,12 +311,21 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
 }
 
 int midi_write_event(size_t size, unsigned char *buffer) {
+    /* if the device closed in another thread, don't try to do anything */
+    if(!tctx.activated) {
+        return(-1);
+    }
+
     return(_midi_add_event(&(tctx.outEv), size, buffer));
 }
 
 int midi_read_event(size_t size, unsigned char *buffer) {
     midi_event *ev;
     size_t evsize;
+
+    if(!tctx.activated) {
+        return(0);
+    }
 
     ev = _midi_get_event(&(tctx.inEv));
     if(ev == NULL) {

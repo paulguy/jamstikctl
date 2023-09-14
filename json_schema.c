@@ -11,7 +11,7 @@ typedef enum {
     ttManualEntryDecimal,
     ttReadOnlyHex,
     ttReadOnlyDecimal
-} schema_control_type;
+} JsControlType;
 
 #define SF_ENGINEERING (1)
 #define SF_ADVANCED (2)
@@ -22,14 +22,18 @@ typedef enum {
 #define SF_BTONLY (64)
 #define SF_MAX_FLAG SF_BTONLY
 
-json_object *json_tokenize_whole_string(size_t len, const char *buffer) {
+const size_t JS_VALUE_SIZES[] = {
+    1, 2, 5, 5, 0, 0, 3, 3, 10, 10
+};
+
+json_object *json_tokenize_whole_string(size_t len, const unsigned char *buffer) {
     json_tokener *tok = json_tokener_new();
     json_object *jobj = NULL;
     enum json_tokener_error jerr;
     size_t parsed = 0;
 
     do {
-        jobj = json_tokener_parse_ex(tok, &(buffer[parsed]), len);
+        jobj = json_tokener_parse_ex(tok, (char *)&(buffer[parsed]), len);
         jerr = json_tokener_get_error(tok);
         parsed = json_tokener_get_parse_end(tok);
     } while(jerr == json_tokener_continue);
@@ -39,7 +43,7 @@ json_object *json_tokenize_whole_string(size_t len, const char *buffer) {
     }
 
     if(parsed < len) {
-        fprintf(stderr, "Extra chars %d  parsed %d\n", len - parsed, parsed);
+        fprintf(stderr, "Extra chars %lu  parsed %lu\n", len - parsed, parsed);
     }
 
     json_tokener_free(tok);
@@ -47,7 +51,7 @@ json_object *json_tokenize_whole_string(size_t len, const char *buffer) {
     return(jobj);
 }
 
-SchemaItem *jamstik_parse_json_schema(unsigned int *count, size_t len, const char *buffer) {
+SchemaItem *jamstik_parse_json_schema(unsigned int *count, size_t len, const unsigned char *buffer) {
     json_object *jobj;
     json_object *schema;
     json_object *json_item;
@@ -172,34 +176,36 @@ error:
     return(NULL);
 }
 
-const char *schema_type_to_name(int type) {
+const char *schema_type_to_name(JsValueType type) {
     switch(type) {
-        case js_uint7:
+        case JsTypeUInt7:
             return("unsigned 7 bit");
-        case js_uint8:
+        case JsTypeUInt8:
             return("unsigned 8 bit (2 byte packed)");
-        case js_uint32:
+        case JsTypeUInt32:
             return("unsigned 32 bit (5 byte packed)");
-        case js_int32:
+        case JsTypeInt32:
             return("signed 32 bit (5 byte packed)");
-        case js_ascii7:
+        case JsTypeASCII7:
             return("7 bit ASCII");
-        case js_ascii8:
+        case JsTypeASCII8:
             return("8 bit ASCII (packed)");
-        case js_int16:
+        case JsTypeInt16:
             return("signed 16 bit (3 byte packed)");
-        case js_uint16:
+        case JsTypeUInt16:
             return("unsigned 16 bit (3 byte packed)");
-        case js_int64:
+        case JsTypeInt64:
             return("signed 64 bit (9 byte packed ?)");
-        case js_uint64:
+        case JsTypeUInt64:
             return("unsigned 64 bit (9 byte packed ?)");
+        default:
+            break;
     }
 
     return("unknown");
 }
 
-const char *schema_control_to_name(int control) {
+const char *schema_control_to_name(JsControlType control) {
     switch(control) {
         case ttCheckbox:
             return("Checkbox");
@@ -259,4 +265,12 @@ void schema_print_item(SchemaItem *item) {
         printf(" %s", schema_flag_to_name(item->F & i));
     }
     printf("\n");
+}
+
+size_t schema_get_type_size(JsValueType type) {
+    if(type < 0 || type >= JsTypeMax) {
+        return(-1);
+    }
+
+    return(JS_VALUE_SIZES[type]);
 }

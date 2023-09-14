@@ -26,7 +26,9 @@
 #include <pthread.h>
 #include <termios.h>
 #include <errno.h>
-
+#include <sys/select.h>
+#include <sys/time.h>
+#include <sys/types.h>
 #include <curses.h>
 #include <term.h>
 
@@ -39,6 +41,19 @@
 const char JACK_NAME[] = "jamstikctl";
 const char INPORT_NAME[] = "Guitar In";
 const char OUTPORT_NAME[] = "Guitar Out";
+
+const unsigned char JS_PARAM_NAMES[][9] = {
+    "EXPRESSN",
+    "PITCHBEN",
+    "MPE_MODE"
+};
+
+typedef enum {
+    JsParamInvalid = -1,
+    JsParamExpression = 0,
+    JsParamPitchBend,
+    JsParamMPEMode
+} JsParamIndex;
 
 #define MIDI_CMD (0)
 #define MIDI_SYSEX (0xF0)
@@ -72,6 +87,7 @@ const char OUTPORT_NAME[] = "Guitar Out";
 #define JS_SCHEMA_EXCESS (JS_SCHEMA_START + MIDI_SYSEX_TAIL)
 
 int stdout_fd;
+int stdin_fd;
 struct termios original_termios;
 struct sigaction ohup;
 struct sigaction oint;
@@ -124,6 +140,7 @@ int term_setup() {
     struct termios new_termios;
 
     stdout_fd = fileno(stdout);
+    stdin_fd = fileno(stdin);
 
     if(tcgetattr(stdout_fd, &original_termios) < 0) {
         fprintf(stderr, "Couldn't get termios: %s\n", strerror(errno));
@@ -142,6 +159,8 @@ int term_setup() {
     new_termios.c_lflag |= ISIG;
     /* allow printed text to not look weird */
     new_termios.c_oflag |= OPOST;
+    new_termios.c_cc[VMIN] = 1;
+    new_termios.c_cc[VTIME] = 0;
 
     if(tcsetattr(stdout_fd, TCSADRAIN, &new_termios) < 0) {
         fprintf(stderr, "Couldn't set termios: %s\n", strerror(errno));
@@ -155,7 +174,7 @@ int term_setup() {
     return(0);
 }
 
-void build_js_sysex(char *buf, size_t len) {
+void build_js_sysex(unsigned char *buf, size_t len) {
     buf[MIDI_CMD] = MIDI_SYSEX;
     buf[MIDI_SYSEX_VENDOR] = JS_VENDOR_0;
     buf[MIDI_SYSEX_VENDOR+1] = JS_VENDOR_1;
@@ -165,7 +184,7 @@ void build_js_sysex(char *buf, size_t len) {
     memset(&(buf[MIDI_SYSEX_BODY]), 0, len-MIDI_SYSEX_HEAD-MIDI_SYSEX_TAIL);
 }
 
-int build_config_query(char *buf, const char *name) {
+int build_config_query(unsigned char *buf, const unsigned char *name) {
     build_js_sysex(buf, JS_CONFIG_QUERY_LEN);
     buf[JS_CMD] = JS_CONFIG_QUERY;
     if(name != NULL) {
@@ -174,13 +193,46 @@ int build_config_query(char *buf, const char *name) {
     return(JS_CONFIG_QUERY_LEN);
 }
 
-int build_schema_query(char *buf, const char *name) {
+int build_schema_query(unsigned char *buf, const unsigned char *name) {
     build_js_sysex(buf, JS_SCHEMA_QUERY_LEN);
     buf[JS_CMD] = JS_SCHEMA_QUERY;
     if(name != NULL) {
         memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
     }
     return(JS_SCHEMA_QUERY_LEN);
+}
+
+JsParamIndex lookup_param(size_t len, const unsigned char *name) {
+    unsigned int i;
+
+    if(len < 8) {
+        return(JsParamInvalid);
+    }
+
+    for(i = 0; i < sizeof(JS_PARAM_NAMES) / sizeof(JS_PARAM_NAMES[0]); i++) {
+        if(strncmp((char *)name, (char *)JS_PARAM_NAMES[i], 8) == 0) {
+            return(i);
+        }
+    }
+
+    return(JsParamInvalid);
+}
+
+int getkey() {
+    fd_set readset;
+    struct timeval tv;
+
+    FD_ZERO(&readset);
+    FD_SET(stdin_fd, &readset);
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+
+    select(stdin_fd+1, &readset, 0, 0, &tv);
+    if(FD_ISSET(stdin_fd, &readset)) {
+        return(fgetc(stdin));
+    }
+
+    return(-1);
 }
 
 int main(int argc, char **argv) {
@@ -192,8 +244,11 @@ int main(int argc, char **argv) {
     unsigned int schema_count;
     SchemaItem *schema;
     unsigned int category_count;
-    char **categories;
+    const char **categories;
     unsigned int cur_category;
+    int expression;
+    int pitchend;
+    int MPE;
 
     fprintf(stderr, "Setting up JACK...\n");
 
@@ -232,12 +287,10 @@ int main(int argc, char **argv) {
                         JACK_NAME, OUTPORT_NAME, inport);
     }
 
-    /*  only use for interactive mode
     if(term_setup() < 0) {
         fprintf(stderr, "Failed to setup terminal.\n");
         goto error_midi_cleanup;
     }
-    */
 
     while(!midi_ready() && midi_activated()) {
         usleep(1000000);
@@ -247,17 +300,31 @@ int main(int argc, char **argv) {
         size = build_schema_query(buffer, NULL);
         if(midi_write_event(size, buffer) < 0) {
             fprintf(stderr, "Failed to write event.\n");
-            goto error_midi_cleanup;
+            goto error_term_cleanup;
         }
 
         while(midi_activated()) {
+            int keypress = getkey();
+            switch(keypress) {
+                case 'e':
+                    break;
+                case 'b':
+                    break;
+                case 'm':
+                    break;
+                case 'q':
+                    term_cleanup();
+                    midi_cleanup();
+                    /* will fall through loop and terminate */
+            }
+
             for(;;) {
                 size = midi_read_event(sizeof(buffer), buffer);
                 if(size > 0) {
                     if(buffer[MIDI_CMD] == MIDI_SYSEX) {
                         if(buffer[JS_CMD] == JS_SCHEMA_RETURN) {
                             buffer[size - MIDI_SYSEX_TAIL] = '\0';
-                            char *schema_json = &(buffer[JS_SCHEMA_START]);
+                            unsigned char *schema_json = &(buffer[JS_SCHEMA_START]);
 
                             schema = jamstik_parse_json_schema(&schema_count, size - JS_SCHEMA_EXCESS, schema_json);
                             if(schema == NULL) {
@@ -266,7 +333,7 @@ int main(int argc, char **argv) {
                             category_count = 0;
                             categories = NULL;
                             int found;
-                            char **tmp;
+                            const char **tmp;
                             for(i = 0; i < schema_count; i++) {
                                 found = 0;
                                 for(j = 0; j < category_count; j++) {
@@ -303,47 +370,62 @@ int main(int argc, char **argv) {
 
                             cur_category = 0;
 
-                            size = build_config_query(buffer, categories[cur_category]);
+                            size = build_config_query(buffer, (unsigned char *)categories[cur_category]);
                             if(midi_write_event(size, buffer) < 0) {
                                 fprintf(stderr, "Failed to write event.\n");
-                                goto error_midi_cleanup;
+                                goto error_term_cleanup;
                             }
                         } else if(buffer[JS_CMD] == JS_CONFIG_RETURN) {
+                            if((size < JS_CONFIG_TYPE + 1u + MIDI_SYSEX_TAIL)) {
+                                fprintf(stderr, "Config packet too short for necessary fields! (%lu)\n", size);
+                                goto error_term_cleanup;
+                            } else {
+                                int type_size = schema_get_type_size(buffer[JS_CONFIG_TYPE]);
+                                if(type_size < 0) {
+                                    fprintf(stderr, "Invalid config type %hhu!\n", buffer[JS_CONFIG_TYPE]);
+                                    goto error_term_cleanup;
+                                }
+                                if(size < JS_CONFIG_TYPE + 1 + (unsigned int)type_size + MIDI_SYSEX_TAIL) {
+                                    fprintf(stderr, "Config packet too short! (%lu)\n", size);
+                                    goto error_term_cleanup;
+                                }
+                            }
+
                             printf("%s ", categories[cur_category]);
                             fwrite(&(buffer[JS_CONFIG_NAME]), JS_CONFIG_NAME_LEN, 1, stdout);
                             switch(buffer[JS_CONFIG_TYPE]) {
-                                case js_uint7:
+                                case JsTypeUInt7:
                                     printf(" (uint7) %hhu\n", buffer[JS_CONFIG_VALUE]);
                                     break;
-                                case js_uint8:
+                                case JsTypeUInt8:
                                     printf(" (uint8) %hhu\n", decode_packed_uint8(&(buffer[JS_CONFIG_VALUE])));
                                     break;
-                                case js_uint32:
+                                case JsTypeUInt32:
                                     printf(" (uint32) %u\n", decode_packed_uint32(&(buffer[JS_CONFIG_VALUE])));
                                     break;
-                                case js_int32:
+                                case JsTypeInt32:
                                     printf(" (int32) %d\n", decode_packed_int32(&(buffer[JS_CONFIG_VALUE])));
                                     break;
-                                case js_ascii7:
+                                case JsTypeASCII7:
                                     printf(" (ascii7) \"");
                                     fwrite(&(buffer[JS_CONFIG_VALUE]), size - JS_CONFIG_VALUE - MIDI_SYSEX_TAIL, 1, stdout);
                                     printf("\"\n");
                                     break;
-                                case js_ascii8:
+                                case JsTypeASCII8:
                                     /* not implemented */
                                     print_hex(size - JS_CONFIG_VALUE, &(buffer[JS_CONFIG_VALUE]));
                                     break;
-                                case js_int16:
+                                case JsTypeInt16:
                                     printf(" (int16) %hd\n", decode_packed_int16(&(buffer[JS_CONFIG_VALUE])));
                                     break;
-                                case js_uint16:
+                                case JsTypeUInt16:
                                     printf(" (uint16) %hu\n", decode_packed_uint16(&(buffer[JS_CONFIG_VALUE])));
                                     break;
-                                case js_int64:
-                                    printf(" (int64) %lld\n", decode_packed_int64(&(buffer[JS_CONFIG_VALUE])));
+                                case JsTypeInt64:
+                                    printf(" (int64) %ld\n", decode_packed_int64(&(buffer[JS_CONFIG_VALUE])));
                                     break;
-                                case js_uint64:
-                                    printf(" (uint64) %llu\n", decode_packed_uint64(&(buffer[JS_CONFIG_VALUE])));
+                                case JsTypeUInt64:
+                                    printf(" (uint64) %lu\n", decode_packed_uint64(&(buffer[JS_CONFIG_VALUE])));
                                     break;
                                 default:
                                     print_hex(size - JS_CONFIG_VALUE, &(buffer[JS_CONFIG_VALUE]));
@@ -351,10 +433,10 @@ int main(int argc, char **argv) {
                         } else if(buffer[JS_CMD] == JS_CONFIG_DONE) {
                             cur_category += 1;
                             if(cur_category < category_count) {
-                                size = build_config_query(buffer, categories[cur_category]);
+                                size = build_config_query(buffer, (unsigned char *)categories[cur_category]);
                                 if(midi_write_event(size, buffer) < 0) {
                                     fprintf(stderr, "Failed to write event.\n");
-                                    goto error_midi_cleanup;
+                                    goto error_term_cleanup;
                                 }
                             } else {
                                 fprintf(stderr, "Done reading config.\n");
@@ -362,14 +444,15 @@ int main(int argc, char **argv) {
                         } else {
                             print_hex(size, buffer);
                         }
-                    } /* else {
+                    } else {
                         print_hex(size, buffer);
-                    } don't handle MIDI events that aren't sysex */
+                    }
                 } else {
+                    /* if no packets, sleep for a bit */
                     break;
                 }
             }
-            usleep(1000000);
+            usleep(100000);
         }
     }
 
