@@ -273,8 +273,24 @@ int find_category(JsInfo *js, const char *name) {
     return(js->category_count-1);
 }
 
-JsInfo *js_parse_json_schema(size_t size, unsigned char *buf) {
+JsInfo *js_init() {
     JsInfo *js;
+
+    js = malloc(sizeof(JsInfo));
+    if(js == NULL) {
+        fprintf(stderr, "Failed to allocate memory!\n");
+        return(NULL);
+    }
+
+    js->config_count = 0;
+    js->config = NULL;
+    js->category_count = 0;
+    js->categories = NULL;
+
+    return(js);
+}
+
+int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
     json_object *jobj;
     json_object *schema;
     json_object *json_item;
@@ -290,19 +306,10 @@ JsInfo *js_parse_json_schema(size_t size, unsigned char *buf) {
     buf[size - MIDI_SYSEX_TAIL] = '\0';
     buf = &(buf[JS_SCHEMA_START]);
 
-    js = malloc(sizeof(JsInfo));
-    if(js == NULL) {
-        fprintf(stderr, "Failed to allocate memory!\n");
-        goto error;
-    }
-
-    js->category_count = 0;
-    js->categories = NULL;
-
-    jobj = json_tokenize_whole_string(size - MIDI_SYSEX_TAIL, buf);
+    jobj = json_tokenize_whole_string(size - JS_SCHEMA_START - MIDI_SYSEX_TAIL, buf);
     if(jobj == NULL) {
         fprintf(stderr, "Couldn't parse JSON string.\n");
-        goto error_free_js;
+        goto error;
     }
 
     json_got = json_object_object_get_ex(jobj, "Schema", &schema);
@@ -410,38 +417,80 @@ JsInfo *js_parse_json_schema(size_t size, unsigned char *buf) {
 
     json_object_put(jobj);
 
-    return(js);
+    return(0);
 
 error_free_memory:
     free(js->config);
 error_put_json:
     json_object_put(jobj);
-error_free_js:
-    free(js);
 error:
-    return(NULL);
+    return(-1);
 }
 
-void js_config_print_item(JsConfig *item) {
+void js_free(JsInfo *js) {
     unsigned int i;
 
-    printf("Name: %s", item->CC);
-    if(item->Desc != NULL && strcmp(item->CC, item->Desc) != 0) {
-        printf("  Description: %s", item->Desc);
+    if(js->categories != NULL) {
+        for(i = 0; i < js->category_count; i++) {
+            free(js->categories[i]);
+        }
+        free(js->categories);
     }
-    printf("  Type: %s", js_config_type_to_name(item->Typ));
-    if(item->Lo != item->Hi) {
-        printf("  Low: %d  Hi: %d", item->Lo, item->Hi);
+
+    if(js->config != NULL) {
+        for(i = 0; i < js->config_count; i++) {
+            free(js->config[i].CC);
+            free(js->config[i].Desc);
+        }
+        free(js->config);
     }
-    if(item->Step > 0) {
-        printf("  Step: %d", item->Step);
+
+    free(js);
+}
+
+void js_config_print(JsInfo *js, JsConfig *config) {
+    unsigned int i;
+
+    printf("Category: ");
+    if(config->Cat < 0 || (unsigned int)config->Cat > js->category_count) {
+        printf("(uncategorized)");
+    } else {
+        printf("%s", js->categories[config->Cat]);
     }
-    printf("  Control: %s", js_config_control_to_name(item->TT));
+
+    printf("  Name: %s", config->CC);
+    if(config->Desc != NULL && strcmp(config->CC, config->Desc) != 0) {
+        printf("  Description: %s", config->Desc);
+    }
+
+    printf("  Type: %s", js_config_type_to_name(config->Typ));
+    if(config->Lo != config->Hi) {
+        printf("  Low: %d  Hi: %d", config->Lo, config->Hi);
+    }
+    if(config->Step > 0) {
+        printf("  Step: %d", config->Step);
+    }
+    printf("  Control: %s", js_config_control_to_name(config->TT));
     printf("  Flags:");
     for(i = 1; i <= SF_MAX_FLAG; i <<= 1) {
-        printf(" %s", js_config_flag_to_name(item->F & i));
+        printf(" %s", js_config_flag_to_name(config->F & i));
     }
     printf("\n");
+
+    printf(" Value: ");
+    if(!config->validValue) {
+        printf("Not set!\n");
+    } else {
+        if(js_config_get_type_is_numeric(config->Typ)) {
+            if(js_config_get_type_is_signed(config->Typ)) {
+                printf("%ld\n", config->val.sint);
+            } else {
+                printf("%lu\n", config->val.uint);
+            }
+        } else {
+            printf("\"%s\"\n", config->val.text);
+        }
+    }
 }
 
 JsConfig *js_config_find(JsInfo *js, const unsigned char *name) {
@@ -470,6 +519,13 @@ JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *b
             fprintf(stderr, "Config packet too short! (%lu)\n", size);
             return(NULL);
         }
+    }
+
+    if(js == NULL) {
+        fprintf(stderr, "WARNING: Ignored a too-early ");
+        fwrite(&(buf[JS_CONFIG_NAME]), JS_CONFIG_NAME_LEN, 1, stderr);
+        fprintf(stderr, " report!\n");
+        return(NULL);
     }
 
     JsConfig *config = js_config_find(js, &(buf[JS_CONFIG_NAME]));
@@ -521,12 +577,12 @@ JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *b
         case JsTypeASCII7:
         case JsTypeASCII8:
             /* no clue how ascii8 is formatted because there's no values returned of this type */
-            config->val.ascii = malloc(size - JS_CONFIG_VALUE - MIDI_SYSEX_TAIL + 1);
-            if(config->val.ascii == NULL) {
+            config->val.text = malloc(size - JS_CONFIG_VALUE - MIDI_SYSEX_TAIL + 1);
+            if(config->val.text == NULL) {
                 return(NULL);
             }
-            memcpy(config->val.ascii, &(buf[JS_CONFIG_VALUE]), size - JS_CONFIG_VALUE - MIDI_SYSEX_TAIL);
-            config->val.ascii[size - JS_CONFIG_VALUE - MIDI_SYSEX_TAIL] = '\0';
+            memcpy(config->val.text, &(buf[JS_CONFIG_VALUE]), size - JS_CONFIG_VALUE - MIDI_SYSEX_TAIL);
+            config->val.text[size - JS_CONFIG_VALUE - MIDI_SYSEX_TAIL] = '\0';
             break;
         case JsTypeInt16:
             config->val.sint = decode_packed_int16(&(buf[JS_CONFIG_VALUE]));
@@ -548,23 +604,4 @@ JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *b
     config->validValue = 1;
 
     return(config);
-}
-
-void print_jsconfig(JsInfo *js, JsConfig *config) {
-    if(config->Cat < 0) {
-        printf("(uncategorized)");
-    } else {
-        printf("%s", js->categories[config->Cat]);
-    }
-    printf(" %s (%s) ", config->CC, js_config_type_to_short_name(config->Typ));
-
-    if(!config->validValue) {
-        printf("Not set!\n");
-    } else {
-        if(js_config_get_type_is_signed(config->Typ)) {
-            printf("%ld\n", config->val.sint);
-        } else {
-            printf("%lu\n", config->val.uint);
-        }
-    }
 }

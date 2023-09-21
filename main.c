@@ -309,11 +309,16 @@ int main(int argc, char **argv) {
 
     unsigned int cur_category;
 
+    js = js_init();
+    if(js == NULL) {
+       goto error;
+    }
+
     fprintf(stderr, "Setting up JACK...\n");
 
     if(midi_setup(JACK_NAME, INPORT_NAME, OUTPORT_NAME, pthread_self()) < 0) {
         fprintf(stderr, "Failed to set up JACK.\n");
-        goto error;
+        goto error_js_cleanup;
     }
 
     fprintf(stderr, "JACK client activated...\n");
@@ -382,9 +387,9 @@ int main(int argc, char **argv) {
                 if(size > 0) {
                     if(buffer[MIDI_CMD] == MIDI_SYSEX) {
                         if(buffer[JS_CMD] == JS_SCHEMA_RETURN) {
-                            js = js_parse_json_schema(size, buffer);
-                            if(js == NULL) {
+                            if(js_parse_json_schema(js, size, buffer) < 0) {
                                 fprintf(stderr, "Failed to parse schema.\n");
+                                goto error_term_cleanup;
                             }
 
                             cur_category = 0;
@@ -396,6 +401,10 @@ int main(int argc, char **argv) {
                             }
                         } else if(buffer[JS_CMD] == JS_CONFIG_RETURN) {
                             config = js_decode_config_value(js, size, buffer);
+                            if(config == NULL) {
+                                fprintf(stderr, "WARNING: Got no value back!\n");
+                                continue;
+                            }
 
                             switch(lookup_param(config->CC)) {
                                 case JsParamExpression:
@@ -403,6 +412,10 @@ int main(int argc, char **argv) {
                                 case JsParamMPEMode:
                                 default:
                                     break;
+                            }
+
+                            if(cur_category >= js->category_count) {
+                                js_config_print(js, config);
                             }
                         } else if(buffer[JS_CMD] == JS_CONFIG_DONE) {
                             cur_category++;
@@ -415,7 +428,7 @@ int main(int argc, char **argv) {
                             } else {
                                 fprintf(stderr, "Done reading config.\n");
                                 for(i = 0; i < js->config_count; i++) {
-                                    js_config_print_item(&(js->config[i]));
+                                    js_config_print(js, &(js->config[i]));
                                 }
                             }
                         } else {
@@ -439,6 +452,8 @@ error_term_cleanup:
     term_cleanup();
 error_midi_cleanup:
     midi_cleanup();
+error_js_cleanup:
+    js_free(js);
 error:
     return(EXIT_FAILURE);
 }

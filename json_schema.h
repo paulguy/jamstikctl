@@ -67,7 +67,7 @@ typedef struct {
     union {
         int64_t sint;
         uint64_t uint;
-        char *ascii;
+        char *text;
     } val;
 } JsConfig;
 
@@ -79,9 +79,11 @@ typedef struct {
     char **categories;
 } JsInfo;
 
-JsInfo *js_parse_json_schema(size_t len, unsigned char *buf);
+JsInfo *js_init();
+void js_free(JsInfo *js);
+int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf);
 JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *buf);
-void js_config_print_item(JsConfig *item);
+void js_config_print(JsInfo *js, JsConfig *config);
 JsConfig *js_config_find(JsInfo *js, const unsigned char *name);
 int js_config_get_type_is_valid(JsType type);
 size_t js_config_get_type_size(JsType type);
