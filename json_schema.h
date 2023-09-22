@@ -17,6 +17,35 @@
 #define JS_VENDOR_2 (0x02)
 #define JS_CMD MIDI_SYSEX_BODY
 
+#define MIDI_CMD_MASK (0xF0)
+#define MIDI_CHANNEL_MASK (0x0F)
+
+#define MIDI_CMD_NOTE_OFF (0x80)
+#define MIDI_CMD_NOTE_ON (0x90)
+/* applie to above */
+#define MIDI_CMD_NOTE_VEL (2)
+#define MIDI_CMD_POLYTOUCH (0xA0)
+#define MIDI_CMD_POLYTOUCH_PRESSURE (2)
+/* applies to above 3 */
+#define MIDI_CMD_NOTE (1)
+
+#define MIDI_CMD_CC (0xB0)
+#define MIDI_CMD_CC_CONTROL (1)
+#define MIDI_CMD_CC_VALUE (2)
+
+#define MIDI_CMD_PROGCH (0xC0)
+#define MIDI_CMD_PROGCH_PROG (1)
+
+#define MIDI_CMD_CHANTOUCH (0xD0)
+#define MIDI_CMD_CHANTOUCH_PRESSURE (1)
+
+#define MIDI_CMD_PITCHBEND (0xE0)
+#define MIDI_CMD_PITCHBEND_LOW (1)
+#define MIDI_CMD_PITCHBEND_HIGH (2)
+#define MIDI_CMD_PITCHBEND_OFFSET (8192)
+
+#define MIDI_CMD_2_VAL(LOW, HIGH) ((LOW) | ((HIGH) << 7))
+
 #define JS_CONFIG_NAME (JS_CMD + 1)
 #define JS_CONFIG_NAME_LEN (8)
 #define JS_CONFIG_TYPE (JS_CONFIG_NAME + JS_CONFIG_NAME_LEN)
@@ -24,6 +53,8 @@
 #define JS_CONFIG_QUERY_LEN (JS_CONFIG_NAME + JS_CONFIG_NAME_LEN + MIDI_SYSEX_TAIL)
 #define JS_CONFIG_QUERY (0x66)
 #define JS_CONFIG_RETURN (0x61)
+#define JS_CONFIG_SET (0x62)
+#define JS_CONFIG_SET_RETURN (0x63)
 #define JS_CONFIG_DONE (0x67)
 
 #define JS_SCHEMA_QUERY (0x44)
@@ -36,6 +67,15 @@
 
 #define JS_NO (0)
 #define JS_YES (1)
+
+#define JS_GET_NUM_VALUE(TYPE, VAR, CONFIG) \
+    if (js_config_get_type_is_signed((CONFIG)->Typ)) { \
+        (VAR) = (TYPE)((CONFIG)->val.sint); \
+    } else { \
+        (VAR) = (TYPE)((CONFIG)->val.uint); \
+    }
+
+#define JS_GET_TEXT_VALUE(TYPE, VAR, CONFIG) (VAR) = (TYPE)((CONFIG)->val.text);
 
 typedef enum {
     JsTypeInvalid = -1,

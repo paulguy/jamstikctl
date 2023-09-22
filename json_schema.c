@@ -521,7 +521,7 @@ JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *b
         }
     }
 
-    if(js == NULL) {
+    if(js->config_count == 0) {
         fprintf(stderr, "WARNING: Ignored a too-early ");
         fwrite(&(buf[JS_CONFIG_NAME]), JS_CONFIG_NAME_LEN, 1, stderr);
         fprintf(stderr, " report!\n");

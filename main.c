@@ -172,12 +172,21 @@ int build_schema_query(unsigned char *buf, const char *name) {
     return(JS_SCHEMA_QUERY_LEN);
 }
 
-int build_config_set_int(unsigned char *buf, const char *name,
-                         JsType type, long long int value) {
+int build_config_set_sint(unsigned char *buf, const char *name,
+                          JsType type, long long int value) {
+    int size;
+
     if(!js_config_get_type_is_valid(type) ||
        !js_config_get_type_is_numeric(type)) {
         return(-1);
     }
+
+    size = JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL;
+
+    build_js_sysex(buf, size);
+    buf[JS_CMD] = JS_CONFIG_SET;
+    buf[JS_CONFIG_TYPE] = type;
+    memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
 
     switch(js_config_get_type_bits(type)) {
         case 16:
@@ -185,8 +194,6 @@ int build_config_set_int(unsigned char *buf, const char *name,
                 return(-1);
             }
 
-            build_js_sysex(buf, JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL);
-            memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
             encode_packed_int16(value, &(buf[JS_CONFIG_VALUE]));
             break;
         case 32:
@@ -194,30 +201,34 @@ int build_config_set_int(unsigned char *buf, const char *name,
                 return(-1);
             }
 
-            build_js_sysex(buf, JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL);
-            memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
             encode_packed_int32(value, &(buf[JS_CONFIG_VALUE]));
             break;
         case 64:
             /* long long int is this size */
-            build_js_sysex(buf, JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL);
-            memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
             encode_packed_int64(value, &(buf[JS_CONFIG_VALUE]));
             break;
         default:
             return(-1);
     }
 
-    return(0);
+    return(size);
 }
 
 int build_config_set_uint(unsigned char *buf, const char *name,
                           JsType type, long long unsigned int value) {
+    int size;
 
     if(!js_config_get_type_is_valid(type) ||
        !js_config_get_type_is_numeric(type)) {
         return(-1);
     }
+
+    size = JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL;
+
+    build_js_sysex(buf, size);
+    buf[JS_CMD] = JS_CONFIG_SET;
+    buf[JS_CONFIG_TYPE] = type;
+    memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
 
     switch(js_config_get_type_bits(type)) {
         case 7:
@@ -225,8 +236,6 @@ int build_config_set_uint(unsigned char *buf, const char *name,
                 return(-1);
             }
 
-            build_js_sysex(buf, JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL);
-            memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
             buf[JS_CONFIG_VALUE] = value;
             break;
         case 8:
@@ -234,8 +243,6 @@ int build_config_set_uint(unsigned char *buf, const char *name,
                 return(-1);
             }
 
-            build_js_sysex(buf, JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL);
-            memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
             encode_packed_uint8(value, &(buf[JS_CONFIG_VALUE]));
             break;
         case 16:
@@ -243,8 +250,6 @@ int build_config_set_uint(unsigned char *buf, const char *name,
                 return(-1);
             }
 
-            build_js_sysex(buf, JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL);
-            memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
             encode_packed_uint16(value, &(buf[JS_CONFIG_VALUE]));
             break;
         case 32:
@@ -252,22 +257,22 @@ int build_config_set_uint(unsigned char *buf, const char *name,
                 return(-1);
             }
 
-            build_js_sysex(buf, JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL);
-            memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
             encode_packed_uint32(value, &(buf[JS_CONFIG_VALUE]));
             break;
         case 64:
             /* long long int is this size */
-            build_js_sysex(buf, JS_CONFIG_VALUE + js_config_get_type_size(type) + MIDI_SYSEX_TAIL);
-            memcpy(&(buf[JS_CONFIG_NAME]), name, JS_CONFIG_NAME_LEN);
             encode_packed_uint64(value, &(buf[JS_CONFIG_VALUE]));
             break;
         default:
             return(-1);
     }
 
-    return(0);
+    return(size);
 }
+
+#define BUILD_CONFIG(BUF, NAME, TYPE, VAL) (js_config_get_type_is_signed((TYPE)) ? \
+                                                build_config_set_sint((BUF), (NAME), (TYPE), (VAL)) : \
+                                                build_config_set_uint((BUF), (NAME), (TYPE), (VAL)))
 
 JsParamIndex lookup_param(const char *name) {
     unsigned int i;
@@ -299,7 +304,7 @@ int getkey() {
 }
 
 int main(int argc, char **argv) {
-    size_t size;
+    int size;
     unsigned char buffer[MIDI_MAX_BUFFER_SIZE];
     unsigned int i;
     const char *inport;
@@ -307,7 +312,16 @@ int main(int argc, char **argv) {
     JsInfo *js;
     JsConfig *config;
 
+    int channel;
+
     unsigned int cur_category;
+
+    int expression = -1;
+    JsType expressionType = JsTypeUInt7;
+    int pitchBend = -1;
+    JsType pitchBendType = JsTypeUInt7;
+    int MPEMode = -1;
+    JsType MPEModeType = JsTypeUInt7;
 
     js = js_init();
     if(js == NULL) {
@@ -371,10 +385,64 @@ int main(int argc, char **argv) {
             int keypress = getkey();
             switch(keypress) {
                 case 'e':
+                    if(expression < 0) {
+                        fprintf(stderr, "WARNING: Expression may not be supported!\n");
+                    }
+                    expression = expression < 0 ? 0 : (expression ? 0 : 1);
+                    if(expression) {
+                        printf("Turning expression ON.\n");
+                    } else {
+                        printf("Turning expression OFF.\n");
+                    }
+                    size = BUILD_CONFIG(buffer, JS_PARAM_NAMES[JsParamExpression], expressionType, expression);
+                    if(size < 0) {
+                        fprintf(stderr, "Invalid type!\n");
+                    } else {
+                        if(midi_write_event(size, buffer) < 0) {
+                            fprintf(stderr, "Failed to write event.\n");
+                            goto error_term_cleanup;
+                        }
+                    }
                     break;
                 case 'b':
+                    if(pitchBend < 0) {
+                        fprintf(stderr, "WARNING: Pitch bend may not be supported!\n");
+                    }
+                    pitchBend = pitchBend < 0 ? 0 : (pitchBend ? 0 : 1);
+                    if(pitchBend) {
+                        printf("Turning pitch bend ON.\n");
+                    } else {
+                        printf("Turning pitch bend OFF.\n");
+                    }
+                    size = BUILD_CONFIG(buffer, JS_PARAM_NAMES[JsParamPitchBend], pitchBendType, pitchBend);
+                    if(size < 0) {
+                        fprintf(stderr, "Invalid type!\n");
+                    } else {
+                        if(midi_write_event(size, buffer) < 0) {
+                            fprintf(stderr, "Failed to write event.\n");
+                            goto error_term_cleanup;
+                        }
+                    }
                     break;
                 case 'm':
+                    if(MPEMode < 0) {
+                        fprintf(stderr, "WARNING: MPE mode may not be supported!\n");
+                    }
+                    MPEMode = MPEMode < 0 ? 0 : (MPEMode ? 0 : 1);
+                    if(MPEMode) {
+                        printf("Turning MPE mode ON.\n");
+                    } else {
+                        printf("Turning MPE mode OFF.\n");
+                    }
+                    size = BUILD_CONFIG(buffer, JS_PARAM_NAMES[JsParamMPEMode], MPEModeType, MPEMode);
+                    if(size < 0) {
+                        fprintf(stderr, "Invalid type!\n");
+                    } else {
+                        if(midi_write_event(size, buffer) < 0) {
+                            fprintf(stderr, "Failed to write event.\n");
+                            goto error_term_cleanup;
+                        }
+                    }
                     break;
                 case 'q':
                     term_cleanup();
@@ -386,56 +454,117 @@ int main(int argc, char **argv) {
                 size = midi_read_event(sizeof(buffer), buffer);
                 if(size > 0) {
                     if(buffer[MIDI_CMD] == MIDI_SYSEX) {
-                        if(buffer[JS_CMD] == JS_SCHEMA_RETURN) {
-                            if(js_parse_json_schema(js, size, buffer) < 0) {
-                                fprintf(stderr, "Failed to parse schema.\n");
-                                goto error_term_cleanup;
-                            }
+                        switch(buffer[JS_CMD]) {
+                            case JS_SCHEMA_RETURN:
+                                if(js_parse_json_schema(js, size, buffer) < 0) {
+                                    fprintf(stderr, "Failed to parse schema.\n");
+                                    goto error_term_cleanup;
+                                }
 
-                            cur_category = 0;
+                                cur_category = 0;
 
-                            size = build_config_query(buffer, js->categories[cur_category]);
-                            if(midi_write_event(size, buffer) < 0) {
-                                fprintf(stderr, "Failed to write event.\n");
-                                goto error_term_cleanup;
-                            }
-                        } else if(buffer[JS_CMD] == JS_CONFIG_RETURN) {
-                            config = js_decode_config_value(js, size, buffer);
-                            if(config == NULL) {
-                                fprintf(stderr, "WARNING: Got no value back!\n");
-                                continue;
-                            }
-
-                            switch(lookup_param(config->CC)) {
-                                case JsParamExpression:
-                                case JsParamPitchBend:
-                                case JsParamMPEMode:
-                                default:
-                                    break;
-                            }
-
-                            if(cur_category >= js->category_count) {
-                                js_config_print(js, config);
-                            }
-                        } else if(buffer[JS_CMD] == JS_CONFIG_DONE) {
-                            cur_category++;
-                            if(cur_category < js->category_count) {
                                 size = build_config_query(buffer, js->categories[cur_category]);
                                 if(midi_write_event(size, buffer) < 0) {
                                     fprintf(stderr, "Failed to write event.\n");
                                     goto error_term_cleanup;
                                 }
-                            } else {
-                                fprintf(stderr, "Done reading config.\n");
-                                for(i = 0; i < js->config_count; i++) {
-                                    js_config_print(js, &(js->config[i]));
+                                break;
+                            case JS_CONFIG_RETURN:
+                            case JS_CONFIG_SET_RETURN:
+                                config = js_decode_config_value(js, size, buffer);
+                                if(config == NULL) {
+                                    fprintf(stderr, "WARNING: Got no value back!\n");
+                                    continue;
                                 }
-                            }
-                        } else {
-                            print_hex(size, buffer);
+
+                                switch(lookup_param(config->CC)) {
+                                    case JsParamExpression:
+                                        JS_GET_NUM_VALUE(int, expression, config)
+                                        expressionType = config->Typ;
+                                        if(expression) {
+                                            printf("Expression is ON.\n");
+                                        } else {
+                                            printf("Expression is OFF.\n");
+                                        }
+                                        break;
+                                    case JsParamPitchBend:
+                                        JS_GET_NUM_VALUE(int, pitchBend, config)
+                                        pitchBendType = config->Typ;
+                                        if(pitchBend) {
+                                            printf("Pitch bend is ON.\n");
+                                        } else {
+                                            printf("Pitch bend is OFF.\n");
+                                        }
+                                        break;
+                                    case JsParamMPEMode:
+                                        JS_GET_NUM_VALUE(int, MPEMode, config)
+                                        MPEModeType = config->Typ;
+                                        if(MPEMode) {
+                                            printf("MPE mode is ON.\n");
+                                        } else {
+                                            printf("MPE mode is OFF.\n");
+                                        }
+                                        break;
+                                    default:
+                                        break;
+                                }
+
+                                if(cur_category == js->category_count) {
+                                    js_config_print(js, config);
+                                }
+                                break;
+                            case JS_CONFIG_DONE:
+                                if(cur_category < js->category_count) {
+                                    size = build_config_query(buffer, js->categories[cur_category]);
+                                    if(midi_write_event(size, buffer) < 0) {
+                                        fprintf(stderr, "Failed to write event.\n");
+                                        goto error_term_cleanup;
+                                    }
+                                    cur_category++;
+                                } else if(cur_category == js->category_count) {
+                                    fprintf(stderr, "Done reading config.\n");
+                                    for(i = 0; i < js->config_count; i++) {
+                                        js_config_print(js, &(js->config[i]));
+                                    }
+                                    cur_category++;
+                                }
+                                break;
+                            default:
+                                print_hex(size, buffer);
                         }
                     } else {
-                        print_hex(size, buffer);
+                        channel = buffer[MIDI_CMD] & MIDI_CHANNEL_MASK;
+
+                        switch(buffer[MIDI_CMD] & MIDI_CMD_MASK) {
+                            case MIDI_CMD_NOTE_OFF:
+                                printf("Note Off (%hhd): %hhd Vel: %hhd\n",
+                                       channel, buffer[MIDI_CMD_NOTE], buffer[MIDI_CMD_NOTE_VEL]);
+                                break;
+                            case MIDI_CMD_NOTE_ON:
+                                printf("Note On (%hhd): %hhd Vel: %hhd\n",
+                                       channel, buffer[MIDI_CMD_NOTE], buffer[MIDI_CMD_NOTE_VEL]);
+                                break;
+                            case MIDI_CMD_POLYTOUCH:
+                                printf("Polyphonic Aftertouch (%hhd): %hhd Pressure: %hhd\n",
+                                       channel, buffer[MIDI_CMD_NOTE], buffer[MIDI_CMD_POLYTOUCH_PRESSURE]);
+                                break;
+                            case MIDI_CMD_CC:
+                                printf("Control Change (%hhd): Control: %hhd Value: %hhd\n",
+                                       channel, buffer[MIDI_CMD_CC_CONTROL], buffer[MIDI_CMD_CC_VALUE]);
+                                break;
+                            case MIDI_CMD_CHANTOUCH:
+                                printf("Channel Aftertouch (%hhd): Pressure: %hhd\n",
+                                       channel, buffer[MIDI_CMD_CHANTOUCH_PRESSURE]);
+                                break;
+                            case MIDI_CMD_PITCHBEND:
+                                printf("Pitchbend (%hhd): Value: %d\n",
+                                       channel, MIDI_CMD_2_VAL(buffer[MIDI_CMD_PITCHBEND_LOW],
+                                                               buffer[MIDI_CMD_PITCHBEND_HIGH]) -
+                                                MIDI_CMD_PITCHBEND_OFFSET);
+                                break;
+                            default:
+                                print_hex(size, buffer);
+                        }
                     }
                 } else {
                     /* if no packets, sleep for a bit */
