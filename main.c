@@ -313,6 +313,8 @@ int main(int argc, char **argv) {
     JsConfig *config;
 
     int channel;
+    unsigned char velocity;
+    unsigned char note;
 
     unsigned int cur_category;
 
@@ -537,29 +539,92 @@ int main(int argc, char **argv) {
 
                         switch(buffer[MIDI_CMD] & MIDI_CMD_MASK) {
                             case MIDI_CMD_NOTE_OFF:
-                                printf("Note Off (%hhd): %hhd Vel: %hhd\n",
-                                       channel, buffer[MIDI_CMD_NOTE], buffer[MIDI_CMD_NOTE_VEL]);
+                                if(size != MIDI_CMD_NOTE_SIZE) {
+                                    fprintf(stderr, "WARNING: Got note off of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                    if(size < MIDI_CMD_NOTE_SIZE) {
+                                        break;
+                                    }
+                                }
+                                note = buffer[MIDI_CMD_NOTE];
+                                velocity = buffer[MIDI_CMD_NOTE_VEL];
+                                size = midi_num_to_note(sizeof(buffer), (char *)buffer, note, 0);
+                                if(size <= 0) {
+                                    fprintf(stderr, "Invalid note number!\n");
+                                    printf("Note Off (%hhd): %hhd Vel: %hhd\n", channel, note, velocity);
+                                } else {
+                                    buffer[size] = '\0';
+                                    printf("Note Off (%hhd): %s (%hhd) Vel: %hhd\n", channel, buffer, note, velocity);
+                                }
                                 break;
                             case MIDI_CMD_NOTE_ON:
-                                printf("Note On (%hhd): %hhd Vel: %hhd\n",
-                                       channel, buffer[MIDI_CMD_NOTE], buffer[MIDI_CMD_NOTE_VEL]);
+                                if(size != MIDI_CMD_NOTE_SIZE) {
+                                    fprintf(stderr, "WARNING: Got note on of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                    if(size < MIDI_CMD_NOTE_SIZE) {
+                                        break;
+                                    }
+                                }
+                                note = buffer[MIDI_CMD_NOTE];
+                                velocity = buffer[MIDI_CMD_NOTE_VEL];
+                                size = midi_num_to_note(sizeof(buffer), (char *)buffer, note, 0);
+                                if(size <= 0) {
+                                    fprintf(stderr, "Invalid note number!\n");
+                                    printf("Note On (%hhd): %hhd Vel: %hhd\n", channel, note, velocity);
+                                } else {
+                                    buffer[size] = '\0';
+                                    printf("Note On (%hhd): %s (%hhd) Vel: %hhd\n", channel, buffer, note, velocity);
+                                }
                                 break;
                             case MIDI_CMD_POLYTOUCH:
+                                if(size != MIDI_CMD_POLYTOUCH_SIZE) {
+                                    fprintf(stderr, "WARNING: Got polyphonic aftertouch event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                    if(size < MIDI_CMD_POLYTOUCH_SIZE) {
+                                        break;
+                                    }
+                                }
                                 printf("Polyphonic Aftertouch (%hhd): %hhd Pressure: %hhd\n",
                                        channel, buffer[MIDI_CMD_NOTE], buffer[MIDI_CMD_POLYTOUCH_PRESSURE]);
                                 break;
                             case MIDI_CMD_CC:
-                                printf("Control Change (%hhd): Control: %hhd Value: %hhd\n",
-                                       channel, buffer[MIDI_CMD_CC_CONTROL], buffer[MIDI_CMD_CC_VALUE]);
+                                if(size != MIDI_CMD_CC_SIZE) {
+                                    fprintf(stderr, "WARNING: Got control change event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                    if(size < MIDI_CMD_CC_SIZE) {
+                                        break;
+                                    }
+                                }
+                                printf("Control Change (%hhd): Control: %s (%hhd) Value: %hhd\n",
+                                       channel, midi_cc_to_string(buffer[MIDI_CMD_CC_CONTROL]),
+                                       buffer[MIDI_CMD_CC_CONTROL], buffer[MIDI_CMD_CC_VALUE]);
+                                break;
+                            case MIDI_CMD_PROGCH:
+                                if(size != MIDI_CMD_PROGCH_SIZE) {
+                                    fprintf(stderr, "WARNING: Got program change event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                    if(size < MIDI_CMD_PROGCH_SIZE) {
+                                        break;
+                                    }
+                                }
+                                printf("Control Change (%hhd): Program: %hhd\n",
+                                       channel, buffer[MIDI_CMD_PROGCH_PROGRAM]);
                                 break;
                             case MIDI_CMD_CHANTOUCH:
+                                if(size != MIDI_CMD_CHANTOUCH_SIZE) {
+                                    fprintf(stderr, "WARNING: Got channel aftertouch event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                    if(size < MIDI_CMD_CHANTOUCH_SIZE) {
+                                        break;
+                                    }
+                                }
                                 printf("Channel Aftertouch (%hhd): Pressure: %hhd\n",
                                        channel, buffer[MIDI_CMD_CHANTOUCH_PRESSURE]);
                                 break;
                             case MIDI_CMD_PITCHBEND:
+                                if(size != MIDI_CMD_PITCHBEND_SIZE) {
+                                    fprintf(stderr, "WARNING: Got pitchbend event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                    if(size < MIDI_CMD_PITCHBEND_SIZE) {
+                                        break;
+                                    }
+                                }
                                 printf("Pitchbend (%hhd): Value: %d\n",
-                                       channel, MIDI_CMD_2_VAL(buffer[MIDI_CMD_PITCHBEND_LOW],
-                                                               buffer[MIDI_CMD_PITCHBEND_HIGH]) -
+                                       channel, MIDI_2BYTE_WORD(buffer[MIDI_CMD_PITCHBEND_HIGH],
+                                                                buffer[MIDI_CMD_PITCHBEND_LOW]) -
                                                 MIDI_CMD_PITCHBEND_OFFSET);
                                 break;
                             default:

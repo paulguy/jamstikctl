@@ -657,3 +657,337 @@ int midi_attach_out_port_by_name(const char *name) {
 
     return(0);
 }
+
+const char NOTE_LOOKUP[] = "AABCCDDEEFFG";
+const char OCTAVE_LOOKUP[] = "0123456789";
+
+int midi_num_to_note(size_t size, char *buf, unsigned int note, int flat) {
+    if(note > 127) {
+        /* nothing written */
+        return(0);
+    }
+    int num = (note - 21) % 12;
+    int octave = (note - 21) / 12;
+    int len;
+
+    switch(num) {
+        case 0:
+        case 2:
+        case 3:
+        case 5:
+        case 7:
+        case 9:
+        case 11:
+            /* naturals */
+            if(octave < 0) {
+                if(size < 3) {
+                    return(3);
+                }
+                len = 3;
+                buf[0] = NOTE_LOOKUP[num];
+                buf[1] = '-';
+                buf[2] = OCTAVE_LOOKUP[-octave];
+            } else {
+                if(size < 2) {
+                    return(2);
+                }
+                len = 2;
+                buf[0] = NOTE_LOOKUP[num];
+                buf[1] = OCTAVE_LOOKUP[octave];
+            }
+            break;
+        default:
+            if(octave < 0) {
+                if(size < 4) {
+                    return(4);
+                }
+                len = 4;
+                if(flat) {
+                    buf[0] = NOTE_LOOKUP[num+1];
+                    buf[1] = 'b';
+                } else {
+                    buf[0] = NOTE_LOOKUP[num];
+                    buf[1] = '#';
+                }
+                buf[2] = '-';
+                buf[3] = OCTAVE_LOOKUP[-octave];
+            } else {
+                if(size < 3) {
+                    return(3);
+                }
+                len = 3;
+                if(flat) {
+                    buf[0] = NOTE_LOOKUP[num+1];
+                    buf[1] = 'b';
+                } else {
+                    buf[0] = NOTE_LOOKUP[num];
+                    buf[1] = '#';
+                }
+                buf[2] = OCTAVE_LOOKUP[octave];
+            }
+    }
+
+    return(len);
+}
+
+const char *midi_cc_to_string(unsigned int cc) {
+    switch(cc) {
+        case MIDI_CC_BANK_SELECT_MSB:
+            return("Bank Select MSB");
+        case MIDI_CC_MOD_WHEEL_MSB:
+            return("Modulation Wheel MSB");
+        case MIDI_CC_BREATH_CONTROL_MSB:
+            return("Breath Controller MSB");
+        case MIDI_CC_UNDEFINED_1_MSB:
+            return("Undefined 1 MSB");
+        case MIDI_CC_FOOT_PEDAL_MSB:
+            return("Foot Pedal MSB");
+        case MIDI_CC_PORTAMENTO_TIME_MSB:
+            return("Portamento Time MSB");
+        case MIDI_CC_DATA_ENTRY_MSB:
+            return("Data Entry MSB");
+        case MIDI_CC_VOLUME_MSB:
+            return("Volume MSB");
+        case MIDI_CC_BALANCE_MSB:
+            return("Balance MSB");
+		case MIDI_CC_UNDEFINED_2_MSB:
+            return("Undefined 2 MSB");
+		case MIDI_CC_PAN_MSB:
+            return("Pan MSB");
+		case MIDI_CC_EXPRESSION_MSB:
+            return("Expression MSB");
+		case MIDI_CC_EFFECT_CONTROL_1_MSB:
+            return("Effect Control 1 MSB");
+		case MIDI_CC_EFFECT_CONTROL_2_MSB:
+            return("Effect Control 2 MSB");
+		case MIDI_CC_UNDEFINED_3_MSB:
+            return("Undefined 3 MSB");
+		case MIDI_CC_UNDEFINED_4_MSB:
+            return("Undefined 4 MSB");
+		case MIDI_CC_GENERAL_PURPOSE_1_MSB:
+            return("General Purpose Controller 1 MSB");
+		case MIDI_CC_GENERAL_PURPOSE_2_MSB:
+            return("General Purpose Controller 2 MSB");
+		case MIDI_CC_GENERAL_PURPOSE_3_MSB:
+            return("General Purpose Controller 3 MSB");
+		case MIDI_CC_GENERAL_PURPOSE_4_MSB:
+            return("General Purpose Controller 4 MSB");
+		case MIDI_CC_UNDEFINED_5_MSB:
+            return("Undefined 5 MSB");
+		case MIDI_CC_UNDEFINED_6_MSB:
+            return("Undefined 6 MSB");
+		case MIDI_CC_UNDEFINED_7_MSB:
+            return("Undefined 7 MSB");
+		case MIDI_CC_UNDEFINED_8_MSB:
+            return("Undefined 8 MSB");
+		case MIDI_CC_UNDEFINED_9_MSB:
+            return("Undefined 9 MSB");
+		case MIDI_CC_UNDEFINED_10_MSB:
+            return("Undefined 10 MSB");
+		case MIDI_CC_UNDEFINED_11_MSB:
+            return("Undefined 11 MSB");
+		case MIDI_CC_UNDEFINED_12_MSB:
+            return("Undefined 12 MSB");
+		case MIDI_CC_UNDEFINED_13_MSB:
+            return("Undefined 13 MSB");
+		case MIDI_CC_UNDEFINED_14_MSB:
+            return("Undefined 14 MSB");
+		case MIDI_CC_UNDEFINED_15_MSB:
+            return("Undefined 15 MSB");
+		case MIDI_CC_UNDEFINED_16_MSB:
+            return("Undefined 16 MSB");
+		case MIDI_CC_BANK_SELECT_LSB:
+            return("Bank Select LSB");
+		case MIDI_CC_MOD_WHEEL_LSB:
+            return("Modulation Wheel LSB");
+		case MIDI_CC_BREATH_CONTROL_LSB:
+            return("Breath Controller LSB");
+		case MIDI_CC_UNDEFINED_1_LSB:
+            return("Undefined 1 LSB");
+		case MIDI_CC_FOOT_PEDAL_LSB:
+            return("Foot Pedal LSB");
+		case MIDI_CC_PORTAMENTO_TIME_LSB:
+            return("Portamento Time LSB");
+		case MIDI_CC_DATA_ENTRY_LSB:
+            return("Data Entry LSB");
+		case MIDI_CC_VOLUME_LSB:
+            return("Volume LSB");
+		case MIDI_CC_BALANCE_LSB:
+            return("Balance LSB");
+		case MIDI_CC_UNDEFINED_2_LSB:
+            return("Undefined 2 LSB");
+		case MIDI_CC_PAN_LSB:
+            return("Pan LSB");
+		case MIDI_CC_EXPRESSION_LSB:
+            return("Expression LSB");
+		case MIDI_CC_EFFECT_CONTROL_1_LSB:
+            return("Effect Control 1 LSB");
+		case MIDI_CC_EFFECT_CONTROL_2_LSB:
+            return("Effect Control 2 LSB");
+		case MIDI_CC_UNDEFINED_3_LSB:
+            return("Undefined 3 LSB");
+		case MIDI_CC_UNDEFINED_4_LSB:
+            return("Undefined 4 LSB");
+		case MIDI_CC_GENERAL_PURPOSE_1_LSB:
+            return("General Purpose Controller 1 MSB");
+		case MIDI_CC_GENERAL_PURPOSE_2_LSB:
+            return("General Purpose Controller 2 MSB");
+		case MIDI_CC_GENERAL_PURPOSE_3_LSB:
+            return("General Purpose Controller 3 MSB");
+		case MIDI_CC_GENERAL_PURPOSE_4_LSB:
+            return("General Purpose Controller 4 MSB");
+		case MIDI_CC_UNDEFINED_5_LSB:
+            return("Undefined 5 LSB");
+		case MIDI_CC_UNDEFINED_6_LSB:
+            return("Undefined 6 LSB");
+		case MIDI_CC_UNDEFINED_7_LSB:
+            return("Undefined 7 LSB");
+		case MIDI_CC_UNDEFINED_8_LSB:
+            return("Undefined 8 LSB");
+		case MIDI_CC_UNDEFINED_9_LSB:
+            return("Undefined 9 LSB");
+		case MIDI_CC_UNDEFINED_10_LSB:
+            return("Undefined 10 LSB");
+		case MIDI_CC_UNDEFINED_11_LSB:
+            return("Undefined 11 LSB");
+		case MIDI_CC_UNDEFINED_12_LSB:
+            return("Undefined 12 LSB");
+		case MIDI_CC_UNDEFINED_13_LSB:
+            return("Undefined 13 LSB");
+		case MIDI_CC_UNDEFINED_14_LSB:
+            return("Undefined 14 LSB");
+		case MIDI_CC_UNDEFINED_15_LSB:
+            return("Undefined 15 LSB");
+		case MIDI_CC_UNDEFINED_16_LSB:
+            return("Undefined 16 LSB");
+		case MIDI_CC_DAMPER_MODE:
+            return("Damper Pedal On/Off");
+		case MIDI_CC_PORTAMENTO_MODE:
+            return("Portamento On/Off");
+		case MIDI_CC_SOSTENUDO_MODE:
+            return("Sostenudo On/Off");
+		case MIDI_CC_SOFT_MODE:
+            return("Soft Pedal On/Off");
+		case MIDI_CC_LEGATO_MODE:
+            return("Legato On/Off");
+		case MIDI_CC_HOLD_2_MODE:
+            return("Hold 2 On/Off");
+		case MIDI_CC_SOUND_CONTROL_1:
+            return("Sound Controller 1 (Default: Sound Variation)");
+		case MIDI_CC_SOUND_CONTROL_2:
+            return("Sound Controller 2 (Default: Timbre/Harmonic Intensity)");
+		case MIDI_CC_SOUND_CONTROL_3:
+            return("Sound Controller 3 (Default: Release Time)");
+		case MIDI_CC_SOUND_CONTROL_4:
+            return("Sound Controller 4 (Default: Attack Time)");
+		case MIDI_CC_SOUND_CONTROL_5:
+            return("Sound Controller 5 (Default: Brightness)");
+		case MIDI_CC_SOUND_CONTROL_6:
+            return("Sound Controller 6 (Default: Decay Time)");
+		case MIDI_CC_SOUND_CONTROL_7:
+            return("Sound Controller 7 (Default: Vibrato Rate)");
+		case MIDI_CC_SOUND_CONTROL_8:
+            return("Sound Controller 8 (Default: Vibrato Depth)");
+		case MIDI_CC_SOUND_CONTROL_9:
+            return("Sound Controller 9 (Default: Vibrato Delay)");
+		case MIDI_CC_SOUND_CONTROL_10:
+            return("Sound Controller 10 (Default: Undefined)");
+		case MIDI_CC_GENERAL_PURPOSE_5:
+            return("Geneal Purpose Controller 5");
+		case MIDI_CC_GENERAL_PURPOSE_6:
+            return("Geneal Purpose Controller 6");
+		case MIDI_CC_GENERAL_PURPOSE_7:
+            return("Geneal Purpose Controller 7");
+		case MIDI_CC_GENERAL_PURPOSE_8:
+            return("Geneal Purpose Controller 8");
+		case MIDI_CC_PORTAMENTO:
+            return("Portamento Control");
+		case MIDI_CC_UNDEFINED_17:
+            return("Undefined 17");
+		case MIDI_CC_UNDEFINED_18:
+            return("Undefined 18");
+		case MIDI_CC_UNDEFINED_19:
+            return("Undefined 19");
+		case MIDI_CC_HIRES_VELOCITY_PREFIX:
+		case MIDI_CC_UNDEFINED_20:
+            return("Undefined 20");
+		case MIDI_CC_UNDEFINED_21:
+            return("Undefined 21");
+		case MIDI_CC_FX_1_DEPTH:
+            return("Effects 1 Depth (Default: Reverb Send Level)");
+		case MIDI_CC_FX_2_DEPTH:
+            return("Effects 2 Depth (Default: Tremolo Depth)");
+		case MIDI_CC_FX_3_DEPTH:
+            return("Effects 3 Depth (Default: Chorus Send Level)");
+		case MIDI_CC_FX_4_DEPTH:
+            return("Effects 4 Depth (Default: Celeste/Detune Depth)");
+		case MIDI_CC_FX_5_DEPTH:
+            return("Effects 5 Depth (Default: Phaser Depth)");
+		case MIDI_CC_DATA_INCREMENT:
+            return("Data Increment");
+		case MIDI_CC_DATA_DECREMENT:
+            return("Data Decrement");
+		case MIDI_CC_NRPN_LSB:
+            return("Non-Registered Parameter Number LSB");
+		case MIDI_CC_NRPN_MSB:
+            return("Non-Registered Parameter Number MSB");
+		case MIDI_CC_RPN_LSB:
+            return("Registered Parameter Number LSB");
+		case MIDI_CC_RPN_MSB:
+            return("Registered Parameter Number MSB");
+		case MIDI_CC_UNDEFINED_22:
+            return("Undefined 22");
+		case MIDI_CC_UNDEFINED_23:
+            return("Undefined 23");
+		case MIDI_CC_UNDEFINED_24:
+            return("Undefined 24");
+		case MIDI_CC_UNDEFINED_25:
+            return("Undefined 25");
+		case MIDI_CC_UNDEFINED_26:
+            return("Undefined 26");
+		case MIDI_CC_UNDEFINED_27:
+            return("Undefined 27");
+		case MIDI_CC_UNDEFINED_28:
+            return("Undefined 28");
+		case MIDI_CC_UNDEFINED_29:
+            return("Undefined 29");
+		case MIDI_CC_UNDEFINED_30:
+            return("Undefined 30");
+		case MIDI_CC_UNDEFINED_31:
+            return("Undefined 31");
+		case MIDI_CC_UNDEFINED_32:
+            return("Undefined 32");
+		case MIDI_CC_UNDEFINED_33:
+            return("Undefined 33");
+		case MIDI_CC_UNDEFINED_34:
+            return("Undefined 34");
+		case MIDI_CC_UNDEFINED_35:
+            return("Undefined 35");
+		case MIDI_CC_UNDEFINED_36:
+            return("Undefined 36");
+		case MIDI_CC_UNDEFINED_37:
+            return("Undefined 37");
+		case MIDI_CC_UNDEFINED_38:
+            return("Undefined 38");
+		case MIDI_CC_UNDEFINED_39:
+            return("Undefined 39");
+		case MIDI_CC_ALL_SOUND_OFF:
+            return("All Sound Off");
+		case MIDI_CC_RESET_ALL_CONTROLLERS:
+            return("Reset All Controllers");
+		case MIDI_CC_LOCAL_CONTROL_MODE:
+            return("Local Control On/Off");
+		case MIDI_CC_ALL_NOTES_OFF:
+            return("All Notes Off");
+		case MIDI_CC_OMNI_MODE_OFF:
+            return("Omni Mode Off");
+		case MIDI_CC_OMNI_MODE_ON:
+            return("Omno Mode On");
+		case MIDI_CC_MONO_MODE_ON:
+            return("Mono Mode On");
+		case MIDI_CC_POLY_MODE_ON:
+            return("Poly Mode On");
+    }
+
+    return("Unknown");
+}

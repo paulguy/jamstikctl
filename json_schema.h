@@ -3,48 +3,12 @@
 
 #include <json-c/json.h>
 
-#define MIDI_CMD (0)
-#define MIDI_SYSEX (0xF0)
-#define MIDI_SYSEX_DUMMY_LEN (0x55)
-#define MIDI_SYSEX_END (0xF7)
-#define MIDI_SYSEX_VENDOR (1)
-#define MIDI_SYSEX_VENDOR_LEN (3)
-#define MIDI_SYSEX_BODY (MIDI_SYSEX_VENDOR + MIDI_SYSEX_VENDOR_LEN)
-#define MIDI_SYSEX_HEAD (4)
-#define MIDI_SYSEX_TAIL (2)
+#include "midi.h"
+
 #define JS_VENDOR_0 (0x00)
 #define JS_VENDOR_1 (0x02)
 #define JS_VENDOR_2 (0x02)
 #define JS_CMD MIDI_SYSEX_BODY
-
-#define MIDI_CMD_MASK (0xF0)
-#define MIDI_CHANNEL_MASK (0x0F)
-
-#define MIDI_CMD_NOTE_OFF (0x80)
-#define MIDI_CMD_NOTE_ON (0x90)
-/* applie to above */
-#define MIDI_CMD_NOTE_VEL (2)
-#define MIDI_CMD_POLYTOUCH (0xA0)
-#define MIDI_CMD_POLYTOUCH_PRESSURE (2)
-/* applies to above 3 */
-#define MIDI_CMD_NOTE (1)
-
-#define MIDI_CMD_CC (0xB0)
-#define MIDI_CMD_CC_CONTROL (1)
-#define MIDI_CMD_CC_VALUE (2)
-
-#define MIDI_CMD_PROGCH (0xC0)
-#define MIDI_CMD_PROGCH_PROG (1)
-
-#define MIDI_CMD_CHANTOUCH (0xD0)
-#define MIDI_CMD_CHANTOUCH_PRESSURE (1)
-
-#define MIDI_CMD_PITCHBEND (0xE0)
-#define MIDI_CMD_PITCHBEND_LOW (1)
-#define MIDI_CMD_PITCHBEND_HIGH (2)
-#define MIDI_CMD_PITCHBEND_OFFSET (8192)
-
-#define MIDI_CMD_2_VAL(LOW, HIGH) ((LOW) | ((HIGH) << 7))
 
 #define JS_CONFIG_NAME (JS_CMD + 1)
 #define JS_CONFIG_NAME_LEN (8)
