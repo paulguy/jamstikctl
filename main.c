@@ -43,6 +43,19 @@ const char JACK_NAME[] = "jamstikctl";
 const char INPORT_NAME[] = "Guitar In";
 const char OUTPORT_NAME[] = "Guitar Out";
 
+/* TODO 
+ * TRANSPSE - transpose
+ * SINGLECH - single channel mode
+ * MIDICHAN - midi output channel
+ * PTCHBSEM - pitchbend semitones
+ * PTCHBCEN - pitchbend cents
+ * TRANSCRI - transcription mode
+ * TUTOR_MD - tutor mode
+ * MIN__VEL - minimum velocity
+ * MAX__VEL - maximum velocity
+ * S[0-5]__NOTE - string 1 - 6 open note
+ * S[0-5]__TRIG - string 1 - 6 trigger sensitivity
+ */
 const char JS_PARAM_NAMES[][9] = {
     "EXPRESSN",
     "PITCHBEN",
@@ -312,9 +325,22 @@ int main(int argc, char **argv) {
     JsInfo *js;
     JsConfig *config;
 
-    int channel;
+    unsigned char channel;
     unsigned char velocity;
     unsigned char note;
+
+    unsigned char cc;
+    unsigned char value;
+    unsigned short RPN[16] = { MIDI_RPN_NULL };
+    unsigned short RPNdata[16][16384] = { 0 };
+
+    for(i = 0; i < sizeof(RPNdata) / sizeof(RPNdata[0]); i++ ) {
+        /* seems to be a common default */
+		RPNdata[i][MIDI_RPN_PITCH_BEND_SENSITIVITY] = MIDI_2BYTE_WORD(48, 0);
+        /* from CC spec */
+		RPNdata[i][MIDI_RPN_CHANNEL_FINE_TUNING] = MIDI_2BYTE_WORD(0x40, 0);
+		RPNdata[i][MIDI_RPN_CHANNEL_COARSE_TUNING] = MIDI_2BYTE_WORD(0x40, 0);
+    }
 
     unsigned int cur_category;
 
@@ -591,9 +617,41 @@ int main(int argc, char **argv) {
                                         break;
                                     }
                                 }
-                                printf("Control Change (%hhd): Control: %s (%hhd) Value: %hhd\n",
-                                       channel, midi_cc_to_string(buffer[MIDI_CMD_CC_CONTROL]),
-                                       buffer[MIDI_CMD_CC_CONTROL], buffer[MIDI_CMD_CC_VALUE]);
+                                cc = buffer[MIDI_CMD_CC_CONTROL];
+                                value = buffer[MIDI_CMD_CC_VALUE];
+                                switch(cc) {
+                                    case MIDI_CC_RPN_MSB:
+                                        RPN[channel] = MIDI_2BYTE_WORD(value, MIDI_2BYTE_WORD_LOW(RPN[channel]));
+                                        printf("Selected RPN for channel %hhd is now %s (%hd) (MSB=%hhd).\n",
+                                               channel, midi_rpn_to_string(RPN[channel]), RPN[channel], value);
+                                        break;
+                                    case MIDI_CC_RPN_LSB:
+                                        RPN[channel] = MIDI_2BYTE_WORD(MIDI_2BYTE_WORD_HIGH(RPN[channel]), value);
+                                        printf("Selected RPN for channel %hhd is now %s (%hd) (LSB=%hhd).\n",
+                                               channel, midi_rpn_to_string(RPN[channel]), RPN[channel], value);
+                                        break;
+                                    case MIDI_CC_DATA_ENTRY_MSB:
+                                        RPNdata[channel][RPN[channel]] =
+                                            MIDI_2BYTE_WORD(value, MIDI_2BYTE_WORD_LOW(RPNdata[channel][RPN[channel]]));
+                                        if(midi_parse_rpn(channel, RPN[channel], RPNdata[channel][RPN[channel]]) < 0) {
+                                            printf("RPN value %s (%hd) for channel %hhd is now %hd (MSB=%hhd).\n",
+                                                   midi_rpn_to_string(RPN[channel]), RPN[channel],
+                                                   channel, RPNdata[channel][RPN[channel]], value);
+                                        }
+                                        break;
+                                    case MIDI_CC_DATA_ENTRY_LSB:
+                                        RPNdata[channel][RPN[channel]] =
+                                            MIDI_2BYTE_WORD(MIDI_2BYTE_WORD_HIGH(RPNdata[channel][RPN[channel]]), value);
+                                        if(midi_parse_rpn(channel, RPN[channel], RPNdata[channel][RPN[channel]]) < 0) {
+                                            printf("RPN value %s (%hd) for channel %hhd is now %hd (LSB=%hhd).\n",
+                                                   midi_rpn_to_string(RPN[channel]), RPN[channel],
+                                                   channel, RPNdata[channel][RPN[channel]], value);
+                                        }
+                                        break;
+                                    default:
+                                        printf("Control Change (%hhd): Control: %s (%hhd) Value: %hhd\n",
+                                               channel, midi_cc_to_string(cc), cc, value);
+                                }
                                 break;
                             case MIDI_CMD_PROGCH:
                                 if(size != MIDI_CMD_PROGCH_SIZE) {

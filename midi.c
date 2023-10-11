@@ -991,3 +991,68 @@ const char *midi_cc_to_string(unsigned int cc) {
 
     return("Unknown");
 }
+
+const char *midi_rpn_to_string(unsigned short rpn) {
+    switch(rpn) {
+		case MIDI_RPN_PITCH_BEND_SENSITIVITY:
+            return("Pitch Bend Sensitivity");
+		case MIDI_RPN_CHANNEL_FINE_TUNING:
+            return("Channel Fine Tuning");
+		case MIDI_RPN_CHANNEL_COARSE_TUNING:
+            return("Channel Coarse Tuning");
+		case MIDI_RPN_TUNING_PROGRAM_CHANGE:
+            return("Tuning Program Change");
+		case MIDI_RPN_TUNING_BANK_SELECT:
+            return("Tuning Bank Select");
+		case MIDI_RPN_MODULATION_DEPTH_CHANGE:
+            return("Modulation Depth Change");
+		case MIDI_RPN_MPE_CONFIGURATION_MESSAGE:
+            return("MPE Configuration Message");
+		case MIDI_RPN_3D_AZIMUTH:
+            return("3D Controller Azimuth Angle");
+		case MIDI_RPN_3D_ELEVATION:
+            return("3D Controller Elevation");
+		case MIDI_RPN_3D_GAIN:
+            return("3D Controller Gain");
+		case MIDI_RPN_3D_DISTANCE_RATIO:
+            return("3D Controller Distance Ratio");
+		case MIDI_RPN_3D_MAXIMUM_DISTANCE:
+            return("3D Controller Maximum Distance");
+		case MIDI_RPN_3D_GAIN_AT_MAX_DISTANCE:
+            return("3D Controller Gain at Maximum Distance");
+		case MIDI_RPN_3D_REFERENCE_DISTANCE_RATIO:
+            return("3D Controller Reference Distance Ratio");
+		case MIDI_RPN_3D_PAN_SPREAD_ANGLE:
+            return("3D Controller Pan Spread Angle");
+		case MIDI_RPN_3D_ROLL_ANGLE:
+            return("3D Controller Roll Angle");
+		case MIDI_RPN_NULL:
+            return("Null Value");
+    }
+
+    return("Unknown");
+}
+
+int midi_parse_rpn(unsigned char channel, unsigned short rpn, unsigned short data) {
+    switch(rpn) {
+        case MIDI_RPN_PITCH_BEND_SENSITIVITY:
+            fprintf(stderr, "Channel %hhd pitchbend sensitivity is now %hd cents.\n",
+                    channel, MIDI_2BYTE_WORD_HIGH(data) * 100 + MIDI_2BYTE_WORD_LOW(data));
+            return(0);
+        case MIDI_RPN_CHANNEL_FINE_TUNING:
+            fprintf(stderr, "Channel %hhd fine tuning is now %f cents.\n",
+                    channel, ((float)data / MIDI_2BYTE_WORD_MAX * 200.0) - 100.0);
+            return(0);
+        case MIDI_RPN_CHANNEL_COARSE_TUNING:
+            fprintf(stderr, "Channel %hhd coarse tuning is now %f cents.\n",
+                    channel, ((float)data / MIDI_2BYTE_WORD_MAX * 12700.0) - 6400.0);
+            return(0);
+        case MIDI_RPN_MPE_CONFIGURATION_MESSAGE:
+            if(channel == 0) {
+                fprintf(stderr, "MPE channel range is %hd.\n", MIDI_2BYTE_WORD_HIGH(data));
+                return(0);
+            }
+    }
+
+    return(-1);
+}

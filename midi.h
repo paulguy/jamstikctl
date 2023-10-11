@@ -47,7 +47,10 @@
 #define MIDI_CMD_PITCHBEND_SIZE MIDI_CMD_PITCHBEND_HIGH+1
 #define MIDI_CMD_PITCHBEND_OFFSET (8192)
 
-#define MIDI_2BYTE_WORD(HIGH, LOW) ((LOW) | ((HIGH) << 7))
+#define MIDI_2BYTE_WORD(HIGH, LOW)  ((LOW) | ((HIGH) << 7))
+#define MIDI_2BYTE_WORD_LOW(X)      ((X) & 0x7F)
+#define MIDI_2BYTE_WORD_HIGH(X)     (((X) >> 7) & 0x7F)
+#define MIDI_2BYTE_WORD_MAX         MIDI_2BYTE_WORD(0x7F, 0x7F)
 
 #define MIDI_CC_BANK_SELECT_MSB         (0)
 #define MIDI_CC_MOD_WHEEL_MSB           (1)
@@ -212,3 +215,5 @@ int midi_attach_in_port_by_name(const char *name);
 int midi_attach_out_port_by_name(const char *name);
 int midi_num_to_note(size_t size, char *buf, unsigned int note, int flat);
 const char *midi_cc_to_string(unsigned int cc);
+const char *midi_rpn_to_string(unsigned short rpn);
+int midi_parse_rpn(unsigned char channel, unsigned short rpn, unsigned short data);
