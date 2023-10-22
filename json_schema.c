@@ -236,8 +236,8 @@ void default_config(JsConfig *config) {
     config->CC = NULL;
     config->Desc = NULL;
     config->Typ = -1;
-    config->Lo = 0;
-    config->Hi = 0;
+    config->Lo.uint = 0;
+    config->Hi.uint = 0;
     config->Step = 0;
     config->TT = -1;
     config->Cat = -1;
@@ -302,6 +302,9 @@ int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
     int category;
     unsigned int i;
 
+    json_object *lo_value;
+    json_object *hi_value;
+
     /* make it safe to pass to json-c */
     buf[size - MIDI_SYSEX_TAIL] = '\0';
     buf = &(buf[JS_SCHEMA_START]);
@@ -335,6 +338,8 @@ int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
             fprintf(stderr, "Schema item type isn't object.");
             goto error_free_memory;
         }
+        lo_value = NULL;
+        hi_value = NULL;
         schema_iter = json_object_iter_begin(json_item);
         schema_iter_end = json_object_iter_end(json_item);
         while(!json_object_iter_equal(&schema_iter, &schema_iter_end)) {
@@ -368,17 +373,9 @@ int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
                     goto error_free_memory;
                 }
             } else if(strcmp(item_name, "Lo") == 0) {
-                if(json_object_get_type(item_value) != json_type_int) {
-                    fprintf(stderr, "Item Lo is not int.");
-                    goto error_free_memory;
-                }
-                js->config[i].Lo = json_object_get_int(item_value);
+                lo_value = item_value;
             } else if(strcmp(item_name, "Hi") == 0) {
-                if(json_object_get_type(item_value) != json_type_int) {
-                    fprintf(stderr, "Item Hi is not int.");
-                    goto error_free_memory;
-                }
-                js->config[i].Hi = json_object_get_int(item_value);
+                hi_value = item_value;
             } else if(strcmp(item_name, "Step") == 0) {
                 if(json_object_get_type(item_value) != json_type_int) {
                     fprintf(stderr, "Item Step is not int.");
@@ -412,6 +409,20 @@ int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
                 fprintf(stderr, "Unknown field %s type %s.", item_name, json_type_to_name(json_object_get_type(item_value)));
             }
             json_object_iter_next(&schema_iter);
+        }
+        if(lo_value != NULL) {
+            if(js_config_get_type_is_signed(js->config[i].Typ)) {
+                js->config[i].Lo.sint = json_object_get_int64(lo_value);
+            } else {
+                js->config[i].Lo.uint = json_object_get_uint64(lo_value);
+            }
+        }
+        if(hi_value != NULL) {
+            if(js_config_get_type_is_signed(js->config[i].Typ)) {
+                js->config[i].Hi.sint = json_object_get_int64(hi_value);
+            } else {
+                js->config[i].Hi.uint = json_object_get_uint64(hi_value);
+            }
         }
     }
 
@@ -464,8 +475,14 @@ void js_config_print(JsInfo *js, JsConfig *config) {
     }
 
     printf("  Type: %s", js_config_type_to_name(config->Typ));
-    if(config->Lo != config->Hi) {
-        printf("  Low: %d  Hi: %d", config->Lo, config->Hi);
+    if(js_config_get_type_is_signed(config->Typ)) {
+        if(config->Lo.sint != config->Hi.sint) {
+            printf("  Low: %ld  Hi: %ld", config->Lo.sint, config->Hi.sint);
+        }
+    } else {
+        if(config->Lo.uint != config->Hi.uint) {
+            printf("  Low: %lu  Hi: %lu", config->Lo.uint, config->Hi.uint);
+        }
     }
     if(config->Step > 0) {
         printf("  Step: %d", config->Step);
@@ -493,7 +510,7 @@ void js_config_print(JsInfo *js, JsConfig *config) {
     }
 }
 
-JsConfig *js_config_find(JsInfo *js, const unsigned char *name) {
+JsConfig *js_config_find(JsInfo *js, const char *name) {
     unsigned int i;
 
     for(i = 0; i < js->config_count; i++) {
@@ -528,7 +545,7 @@ JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *b
         return(NULL);
     }
 
-    JsConfig *config = js_config_find(js, &(buf[JS_CONFIG_NAME]));
+    JsConfig *config = js_config_find(js, (const char *)&(buf[JS_CONFIG_NAME]));
     if(config == NULL) {
         fprintf(stderr, "WARNING: Got config for item \"%s\" not in schema!", &(buf[JS_CONFIG_NAME]));
         fprintf(stderr, "  New value will be added to schema.\n");
@@ -604,4 +621,26 @@ JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *b
     config->validValue = 1;
 
     return(config);
+}
+
+int js_config_get_bool_value(JsConfig *config) {
+    if(!js_config_get_type_is_numeric(config->Typ)) {
+        fprintf(stderr, "Tried to get boolean value from nonnumeric type!\n");
+    } else {
+        if(js_config_get_type_is_signed(config->Typ)) {
+            if(config->val.sint) {
+                return(JS_YES);
+            } else {
+                return(JS_NO);
+            }
+        } else {
+            if(config->val.uint) {
+                return(JS_YES);
+            } else {
+                return(JS_NO);
+            }
+        }
+    }
+
+    return(-1);
 }

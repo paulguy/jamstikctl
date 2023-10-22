@@ -18,11 +18,33 @@ Should just work typing `make`.
 
 USING
 -----
-Not much to use yet, just run it but it doesn't do anything other than testing
-communication once connected.
+Run it on its own, it takes no arguments.  It should connect to the plugged in
+guitar already, but if not it'll prompt you through manual connection.
 
-KNOWN ISSUES
-------------
-Automatically connecting to the guitar device fails requiring the user to
-connect it to the application manually.  I don't know if this is my issue or
-an issue with pipewire-jack.
+For now it outputs a lot of noisy information, that might be removed or made a
+way to change its verbosity.
+
+Input is done by keypress:
+q : quit
+0-9 : number entry for numeric values sent to the guitar.  Data isn't sent
+      until an actual data entry key press is pressed.
+- : toggle positive/negative value
+C : clear value to 0 (that is capital C)
+w : Toggle expression (loudness) events
+e : Toggle pitch bend events
+r : Toggle MPE mode
+t : Set transposition for the entire guitar
+y : toggle outputting all events to a single channel or each string to a
+    channel, high E on the lowest channel.
+u : set base MIDI channel, either the single channel or the first channel for
+    high E string.  No effect in MPE mode.
+i : set pitch bend range in semitones, more range results in less precision as
+    more range of frequencies is scaled to the same precision value
+o : set pitch bend range in cents
+p : toggle transcription mode
+a : set minimum velocity range, values are scaled in to this range
+s : set maximum velocity range
+d : set open note value per string ? (seems to stop output though? )
+f : set string trigger sensitivity, higher for more sensitivity
+z,x,c,v,b,n : select string starting from low E
+

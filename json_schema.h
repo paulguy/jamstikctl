@@ -60,14 +60,20 @@ typedef struct {
     char *CC;
     char *Desc;
     JsType Typ;
-    int Lo;
-    int Hi;
     int Step;
     int TT;
     int Cat;
     unsigned int F;
 
     unsigned int validValue;
+    union {
+        int64_t sint;
+        uint64_t uint;
+    } Lo;
+    union {
+        int64_t sint;
+        uint64_t uint;
+    } Hi;
     union {
         int64_t sint;
         uint64_t uint;
@@ -88,11 +94,12 @@ void js_free(JsInfo *js);
 int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf);
 JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *buf);
 void js_config_print(JsInfo *js, JsConfig *config);
-JsConfig *js_config_find(JsInfo *js, const unsigned char *name);
+JsConfig *js_config_find(JsInfo *js, const char *name);
 int js_config_get_type_is_valid(JsType type);
 size_t js_config_get_type_size(JsType type);
 int js_config_get_type_bits(JsType type);
 int js_config_get_type_is_numeric(JsType type);
 int js_config_get_type_is_signed(JsType type);
+int js_config_get_bool_value(JsConfig *config);
  
 #endif

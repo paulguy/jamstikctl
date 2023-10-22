@@ -43,118 +43,69 @@ const char JACK_NAME[] = "jamstikctl";
 const char INPORT_NAME[] = "Guitar In";
 const char OUTPORT_NAME[] = "Guitar Out";
 
-/* TODO 
- * TRANSPSE - transpose
- * SINGLECH - single channel mode
- * MIDICHAN - midi output channel
- * PTCHBSEM - pitchbend semitones
- * PTCHBCEN - pitchbend cents
- * TRANSCRI - transcription mode
- * TUTOR_MD - tutor mode
- * MIN__VEL - minimum velocity
- * MAX__VEL - maximum velocity
- * S[0-5]__NOTE - string 1 - 6 open note
- * S[0-5]__TRIG - string 1 - 6 trigger sensitivity
- */
+unsigned char buffer[MIDI_MAX_BUFFER_SIZE];
+
+#define JS_PARAM_STRING_OFFSET (1)
+#define JS_PARAM_STRING_CHAR 'x'
 const char JS_PARAM_NAMES[][9] = {
     "EXPRESSN",
     "PITCHBEN",
-    "MPE_MODE"
+    "MPE_MODE",
+    "TRANSPSE",
+    "SINGLECH",
+    "MIDICHAN",
+    "PTCHBSEM",
+    "PTCHBCEN",
+    "TRANSCRI",
+    "MIN__VEL",
+    "MAX__VEL",
+    "Sx__NOTE",
+    "Sx__TRIG"
 };
 
 typedef enum {
     JsParamUnknown = -1,
     JsParamExpression = 0,
     JsParamPitchBend,
-    JsParamMPEMode
+    JsParamMPEMode,
+    JsParamTranspose,
+    JsParamSingleChan,
+    JsParamMIDIChannel,
+    JsParamPitchBendSemitones,
+    JsParamPitchBendCents,
+    JsParamTranscription,
+    JsParamMinVelocity,
+    JsParamMaxVelocity,
+    JsParamOpenNote,
+    JsParamTrigger
 } JsParamIndex;
 
-int stdout_fd;
-int stdin_fd;
-struct termios original_termios;
-struct sigaction ohup;
-struct sigaction oint;
-struct sigaction oterm;
+JsParamIndex do_lookup_param(const char *name) {
+    unsigned int i;
 
-char *read_file(size_t *len, const char *name) {
-    FILE *in = fopen(name, "r");
-    fseek(in, 0, SEEK_END);
-    *len = ftell(in);
-    fseek(in, 0, SEEK_SET);
-    char *buf = malloc(*len);
-    fread(buf, *len, 1, in);
-    fclose(in);
-
-    return(buf);
+    for(i = 0; i < sizeof(JS_PARAM_NAMES) / sizeof(JS_PARAM_NAMES[0]); i++) {
+        if(strncmp(name, JS_PARAM_NAMES[i], 8) == 0) {
+            return(i);
+        }
+    }
+    
+    return(JsParamUnknown);
 }
 
-void term_cleanup() {
-    int ret;
+JsParamIndex lookup_param(const char *name) {
+    JsParamIndex idx;
 
-    ret = tcsetattr(stdout_fd, TCSADRAIN, &original_termios);
-    if(ret < 0) {
-        fprintf(stderr, "Couldn't reset termios: %s\n", strerror(errno));
+    idx = do_lookup_param(name);
+    if(idx != JsParamUnknown) {
+        return(idx);
     }
 
-    if(sigaction(SIGHUP, &ohup, NULL) != 0 ||
-       sigaction(SIGINT, &oint, NULL) != 0 ||
-       sigaction(SIGTERM, &oterm, NULL) != 0) {
-        fprintf(stderr, "Failed to set signal handler.\n");
-    }
-}
+    /* try for one of the string parameters */
+    char param_name[sizeof(JS_PARAM_NAMES[0])];
+    memcpy(param_name, name, sizeof(JS_PARAM_NAMES[0]));
+    param_name[JS_PARAM_STRING_OFFSET] = JS_PARAM_STRING_CHAR;
 
-static void term_cleanup_handler(int signum) {
-    term_cleanup();
-    if(signum == SIGHUP && ohup.sa_handler != NULL) {
-        ohup.sa_handler(signum);
-    } else if(signum == SIGINT && oint.sa_handler != NULL) {
-        oint.sa_handler(signum);
-    } else if(signum == SIGTERM && oterm.sa_handler != NULL) {
-        oterm.sa_handler(signum);
-    }
-}
-
-int term_setup() {
-    struct sigaction sa;
-    sa.sa_handler = term_cleanup_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-
-    struct termios new_termios;
-
-    stdout_fd = fileno(stdout);
-    stdin_fd = fileno(stdin);
-
-    if(tcgetattr(stdout_fd, &original_termios) < 0) {
-        fprintf(stderr, "Couldn't get termios: %s\n", strerror(errno));
-        return(-1);
-    }
-
-    if(sigaction(SIGHUP, &sa, &ohup) != 0 ||
-       sigaction(SIGINT, &sa, &oint) != 0 ||
-       sigaction(SIGTERM, &sa, &oterm) != 0) {
-        fprintf(stderr, "Failed to set signal handler.\n");
-    }
-
-    memcpy(&new_termios, &original_termios, sizeof(struct termios));
-    cfmakeraw(&new_termios);
-    /* allow stuff like CTRL+C to work */
-    new_termios.c_lflag |= ISIG;
-    /* allow printed text to not look weird */
-    new_termios.c_oflag |= OPOST;
-    new_termios.c_cc[VMIN] = 1;
-    new_termios.c_cc[VTIME] = 0;
-
-    if(tcsetattr(stdout_fd, TCSADRAIN, &new_termios) < 0) {
-        fprintf(stderr, "Couldn't set termios: %s\n", strerror(errno));
-        return(-1);
-    }
-
-    if(setupterm(NULL, stdout_fd, NULL) == ERR) {
-        return(-1);
-    }
-
-    return(0);
+    return(do_lookup_param(param_name));
 }
 
 void build_js_sysex(unsigned char *buf, size_t len) {
@@ -287,16 +238,257 @@ int build_config_set_uint(unsigned char *buf, const char *name,
                                                 build_config_set_sint((BUF), (NAME), (TYPE), (VAL)) : \
                                                 build_config_set_uint((BUF), (NAME), (TYPE), (VAL)))
 
-JsParamIndex lookup_param(const char *name) {
-    unsigned int i;
 
-    for(i = 0; i < sizeof(JS_PARAM_NAMES) / sizeof(JS_PARAM_NAMES[0]); i++) {
-        if(strncmp(name, JS_PARAM_NAMES[i], 8) == 0) {
-            return(i);
+int print_numeric_value(JsConfig *config, const char *name) {
+    if(!js_config_get_type_is_numeric(config->Typ)) {
+        fprintf(stderr, "Tried to get numeric value from nonnumeric type!\n");
+        return(-1);
+    }
+
+    if(js_config_get_type_is_signed(config->Typ)) {
+        printf("%s is %ld.\n", name, config->val.sint);
+    } else {
+        printf("%s is %lu.\n", name, config->val.uint);
+    }
+
+    return(0);
+}
+
+#define PRINT_BOOL_VALUE(CONFIG, NAME, VALUE) \
+    (VALUE) = js_config_get_bool_value(CONFIG); \
+    if((VALUE) == JS_YES) { \
+        printf(NAME " is ON.\n"); \
+    } else if((VALUE) == JS_NO) { \
+        printf(NAME " is OFF.\n"); \
+    }
+
+int send_toggle_value(JsInfo *js, unsigned int param_num, const char *name) {
+    JsConfig *config;
+    int value;
+    int size;
+
+    config = js_config_find(js, JS_PARAM_NAMES[param_num]);
+    if(config == NULL) {
+        fprintf(stderr, "Couldn't find config entry for %s.\n", name);
+        return(-1);
+    }
+
+    value = js_config_get_bool_value(config);
+    if(value == JS_NO) {
+        printf("Turning %s ON.\n", name);
+        size = BUILD_CONFIG(buffer, JS_PARAM_NAMES[param_num], config->Typ, JS_YES);
+    } else if(value == JS_YES) {
+        printf("Turning %s OFF.\n", name);
+        size = BUILD_CONFIG(buffer, JS_PARAM_NAMES[param_num], config->Typ, JS_NO);
+    } else {
+        return(-1);
+    }
+
+    if(size < 0) {
+        fprintf(stderr, "Invalid type!\n");
+        return(-1);
+    } else {
+        if(midi_write_event(size, buffer) < 0) {
+            fprintf(stderr, "Failed to write event.\n");
+            return(-1);
         }
     }
 
-    return(JsParamUnknown);
+    return(0);
+}
+
+int do_send_numeric_value(JsInfo *js, const char *param_name, const char *name,
+                          unsigned long long int numEntry, int numEntryNeg) {
+    JsConfig *config;
+    int size;
+
+    config = js_config_find(js, param_name);
+    if(config == NULL) {
+        fprintf(stderr, "Couldn't find config entry for %s.\n", name);
+        return(-1);
+    }
+    if(!js_config_get_type_is_numeric(config->Typ)) {
+        fprintf(stderr, "Tried to set nonnumeric type value with number!\n");
+        return(-1);
+    }
+    if(js_config_get_type_is_signed(config->Typ)) {
+        if(js_config_get_type_bits(config->Typ) == 16 && numEntry > INT_MAX) {
+            fprintf(stderr, "Entered value would be too big.\n");
+            return(-1);
+        } else if(js_config_get_type_bits(config->Typ) == 32 && numEntry > INT_MAX) {
+            fprintf(stderr, "Entered value would be too big.\n");
+            return(-1);
+        } else if(numEntry > LLONG_MAX) {
+            fprintf(stderr, "Entered value would be too big.\n");
+            return(-1);
+        }
+        long long int jsSInt = (long long int)numEntry * numEntryNeg;
+        if(jsSInt < config->Lo.sint || jsSInt > config->Hi.sint) {
+            fprintf(stderr, "WARNING: Entered value %lld is out of reported range %ld to %ld!",
+                    jsSInt, config->Lo.sint, config->Hi.sint);
+        }
+        printf("Setting %s to %lld.\n", name, jsSInt);
+        size = BUILD_CONFIG(buffer, param_name, config->Typ, jsSInt);
+    } else {
+        if(js_config_get_type_bits(config->Typ) == 7 && numEntry > CHAR_MAX) {
+            fprintf(stderr, "Entered value would be too big.\n");
+            return(-1);
+        } else if(js_config_get_type_bits(config->Typ) == 8 && numEntry > UCHAR_MAX) {
+            fprintf(stderr, "Entered value would be too big.\n");
+            return(-1);
+        } else if(js_config_get_type_bits(config->Typ) == 16 && numEntry > INT_MAX) {
+            fprintf(stderr, "Entered value would be too big.\n");
+            return(-1);
+        } else if(js_config_get_type_bits(config->Typ) == 32 && numEntry > UINT_MAX) {
+            fprintf(stderr, "Entered value would be too big.\n");
+            return(-1);
+        } else if(numEntry > LLONG_MAX) {
+            fprintf(stderr, "Entered value would be too big.\n");
+            return(-1);
+        }
+        if(numEntry < config->Lo.uint || numEntry > config->Hi.uint) {
+            fprintf(stderr, "WARNING: Entered value %llu is out of reported range %lu to %lu!",
+                    numEntry, config->Lo.uint, config->Hi.uint);
+        }
+        printf("Setting %s to %llu.\n", name, numEntry);
+        size = BUILD_CONFIG(buffer, param_name, config->Typ, numEntry);
+    } 
+
+    if(size < 0) {
+        fprintf(stderr, "Invalid type!\n");
+        return(-1);
+    } else {
+        if(midi_write_event(size, buffer) < 0) {
+            fprintf(stderr, "Failed to write event.\n");
+            return(-1);
+        }
+    }
+
+    return(0);
+}
+
+int send_numeric_value(JsInfo *js, unsigned int param_num, const char *name,
+                       unsigned long long int numEntry, int numEntryNeg) {
+    return(do_send_numeric_value(js, JS_PARAM_NAMES[param_num], name, numEntry, numEntryNeg));
+}
+
+int send_string_value(JsInfo *js, unsigned int param_num, char string, const char *name,
+                      unsigned long long int numEntry, int numEntryNeg) {
+    char param_name[sizeof(JS_PARAM_NAMES[0])];
+
+    memcpy(param_name, JS_PARAM_NAMES[param_num], sizeof(JS_PARAM_NAMES[0]));
+    param_name[JS_PARAM_STRING_OFFSET] = string;
+
+    return(do_send_numeric_value(js, param_name, name, numEntry, numEntryNeg));
+}
+
+unsigned long long int add_entry_digit(unsigned long long int numEntry, unsigned int num) {
+    if(numEntry > ULLONG_MAX / 10) {
+        return(ULLONG_MAX);
+    }
+    if(numEntry == ULLONG_MAX / 10 && num > ULLONG_MAX % 10) {
+        return(ULLONG_MAX);
+    }
+    numEntry *= 10;
+    numEntry += num;
+
+    return(numEntry);
+}
+
+void print_entry(unsigned long long int numEntry, int numEntryNeg) {
+    if(numEntryNeg < 0) {
+        printf("Entered number: -%llu\n", numEntry);
+    } else {
+        printf("Entered number: %llu\n", numEntry);
+    }
+}
+
+char *read_file(size_t *len, const char *name) {
+    FILE *in = fopen(name, "r");
+    fseek(in, 0, SEEK_END);
+    *len = ftell(in);
+    fseek(in, 0, SEEK_SET);
+    char *buf = malloc(*len);
+    fread(buf, *len, 1, in);
+    fclose(in);
+
+    return(buf);
+}
+
+int stdout_fd;
+int stdin_fd;
+struct termios original_termios;
+struct sigaction ohup;
+struct sigaction oint;
+struct sigaction oterm;
+
+void term_cleanup() {
+    int ret;
+
+    ret = tcsetattr(stdout_fd, TCSADRAIN, &original_termios);
+    if(ret < 0) {
+        fprintf(stderr, "Couldn't reset termios: %s\n", strerror(errno));
+    }
+
+    if(sigaction(SIGHUP, &ohup, NULL) != 0 ||
+       sigaction(SIGINT, &oint, NULL) != 0 ||
+       sigaction(SIGTERM, &oterm, NULL) != 0) {
+        fprintf(stderr, "Failed to set signal handler.\n");
+    }
+}
+
+static void term_cleanup_handler(int signum) {
+    term_cleanup();
+    if(signum == SIGHUP && ohup.sa_handler != NULL) {
+        ohup.sa_handler(signum);
+    } else if(signum == SIGINT && oint.sa_handler != NULL) {
+        oint.sa_handler(signum);
+    } else if(signum == SIGTERM && oterm.sa_handler != NULL) {
+        oterm.sa_handler(signum);
+    }
+}
+
+int term_setup() {
+    struct sigaction sa;
+    sa.sa_handler = term_cleanup_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    struct termios new_termios;
+
+    stdout_fd = fileno(stdout);
+    stdin_fd = fileno(stdin);
+
+    if(tcgetattr(stdout_fd, &original_termios) < 0) {
+        fprintf(stderr, "Couldn't get termios: %s\n", strerror(errno));
+        return(-1);
+    }
+
+    if(sigaction(SIGHUP, &sa, &ohup) != 0 ||
+       sigaction(SIGINT, &sa, &oint) != 0 ||
+       sigaction(SIGTERM, &sa, &oterm) != 0) {
+        fprintf(stderr, "Failed to set signal handler.\n");
+    }
+
+    memcpy(&new_termios, &original_termios, sizeof(struct termios));
+    cfmakeraw(&new_termios);
+    /* allow stuff like CTRL+C to work */
+    new_termios.c_lflag |= ISIG;
+    /* allow printed text to not look weird */
+    new_termios.c_oflag |= OPOST;
+    new_termios.c_cc[VMIN] = 1;
+    new_termios.c_cc[VTIME] = 0;
+
+    if(tcsetattr(stdout_fd, TCSADRAIN, &new_termios) < 0) {
+        fprintf(stderr, "Couldn't set termios: %s\n", strerror(errno));
+        return(-1);
+    }
+
+    if(setupterm(NULL, stdout_fd, NULL) == ERR) {
+        return(-1);
+    }
+
+    return(0);
 }
 
 int getkey() {
@@ -316,12 +508,20 @@ int getkey() {
     return(-1);
 }
 
+long long int lpow(long long int x, unsigned int y) {
+    long long int result = 1;
+    for(;y > 0; y--) {
+        result *= x;
+    }
+    return(result);
+}
+
 int main(int argc, char **argv) {
     int size;
-    unsigned char buffer[MIDI_MAX_BUFFER_SIZE];
     unsigned int i;
     const char *inport;
     const char *outport;
+    int failed_connect = 0;
     JsInfo *js;
     JsConfig *config;
 
@@ -344,12 +544,12 @@ int main(int argc, char **argv) {
 
     unsigned int cur_category;
 
-    int expression = -1;
-    JsType expressionType = JsTypeUInt7;
-    int pitchBend = -1;
-    JsType pitchBendType = JsTypeUInt7;
-    int MPEMode = -1;
-    JsType MPEModeType = JsTypeUInt7;
+    int keypress;
+
+    unsigned long long int numEntry = 0;
+    int numEntryNeg = 1;
+
+    char string = '0';
 
     js = js_init();
     if(js == NULL) {
@@ -378,13 +578,21 @@ int main(int argc, char **argv) {
 
     if(midi_attach_in_port_by_name(outport) < 0) {
         fprintf(stderr, "Failed to connect input port.\n");
-    }
-    if(midi_attach_out_port_by_name(inport) < 0) {
-        fprintf(stderr, "Failed to connect output port.\n");
+        failed_connect = 1;
+    } else {
+        /* yield to be interrupted by a signal once connection is complete */
+        usleep(1000000);
     }
 
-    /* if the above calls succeed (which I haven't seen happen, yet) this might be a bit racey */
-    if(!midi_ready()) {
+    if(midi_attach_out_port_by_name(inport) < 0) {
+        fprintf(stderr, "Failed to connect output port.\n");
+        failed_connect = 1;
+    } else {
+        /* yield to be interrupted by a signal once connection is complete */
+        usleep(1000000);
+    }
+
+    if(failed_connect) {
         fprintf(stderr, "One or more connections failed to connect automatically, "
                         "they must be connected manually.\n"
                         "Connect these:\n"
@@ -398,304 +606,374 @@ int main(int argc, char **argv) {
         goto error_midi_cleanup;
     }
 
+    /* wait until connections have been made, but stop if interrupted */
     while(!midi_ready() && midi_activated()) {
+        /* this would be interrupted early when a connection is made */
         usleep(1000000);
     }
 
-    if(midi_activated()) {
-        size = build_schema_query(buffer, NULL);
-        if(midi_write_event(size, buffer) < 0) {
-            fprintf(stderr, "Failed to write event.\n");
-            goto error_term_cleanup;
-        }
+    /* TODO: Something here to sync up with something because this doesn't work but adding a delay "fixes" it */
+    usleep(1000000);
 
-        while(midi_activated()) {
-            int keypress = getkey();
+    /* fetch all state */
+    size = build_schema_query(buffer, NULL);
+    /* should just error if things were interrupted before this point */
+    if(midi_write_event(size, buffer) < 0) {
+        fprintf(stderr, "Failed to write event.\n");
+        goto error_term_cleanup;
+    }
+
+    while(midi_activated()) {
+        while((keypress = getkey()) >= 0) {
             switch(keypress) {
+                case 'C':
+                    numEntry = 0;
+                    numEntryNeg = 0;
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '-':
+                    numEntryNeg = -numEntryNeg;
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '0':
+                    numEntry = add_entry_digit(numEntry, 0);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '1':
+                    numEntry = add_entry_digit(numEntry, 1);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '2':
+                    numEntry = add_entry_digit(numEntry, 2);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '3':
+                    numEntry = add_entry_digit(numEntry, 3);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '4':
+                    numEntry = add_entry_digit(numEntry, 4);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '5':
+                    numEntry = add_entry_digit(numEntry, 5);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '6':
+                    numEntry = add_entry_digit(numEntry, 6);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '7':
+                    numEntry = add_entry_digit(numEntry, 7);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '8':
+                    numEntry = add_entry_digit(numEntry, 8);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case '9':
+                    numEntry = add_entry_digit(numEntry, 9);
+                    print_entry(numEntry, numEntryNeg);
+                    break;
+                case 'w':
+                    send_toggle_value(js, JsParamExpression, "expression");
+                    break;
                 case 'e':
-                    if(expression < 0) {
-                        fprintf(stderr, "WARNING: Expression may not be supported!\n");
-                    }
-                    expression = expression < 0 ? 0 : (expression ? 0 : 1);
-                    if(expression) {
-                        printf("Turning expression ON.\n");
-                    } else {
-                        printf("Turning expression OFF.\n");
-                    }
-                    size = BUILD_CONFIG(buffer, JS_PARAM_NAMES[JsParamExpression], expressionType, expression);
-                    if(size < 0) {
-                        fprintf(stderr, "Invalid type!\n");
-                    } else {
-                        if(midi_write_event(size, buffer) < 0) {
-                            fprintf(stderr, "Failed to write event.\n");
-                            goto error_term_cleanup;
-                        }
-                    }
+                    send_toggle_value(js, JsParamPitchBend, "pitch bend");
+                    break;
+                case 'r':
+                    send_toggle_value(js, JsParamMPEMode, "MPE mode");
+                    break;
+                case 't':
+                    send_numeric_value(js, JsParamTranspose, "transposition", numEntry, numEntryNeg);
+                    break;
+                case 'y':
+                    send_toggle_value(js, JsParamSingleChan, "single channel mode");
+                    break;
+                case 'u':
+                    send_numeric_value(js, JsParamMIDIChannel, "MIDI channel", numEntry, numEntryNeg);
+                    break;
+                case 'i':
+                    send_numeric_value(js, JsParamPitchBendSemitones, "pitch bend semitones", numEntry, numEntryNeg);
+                    break;
+                case 'o':
+                    send_numeric_value(js, JsParamPitchBendCents, "pitch bend cents", numEntry, numEntryNeg);
+                    break;
+                case 'p':
+                    send_toggle_value(js, JsParamTranscription, "transcription mode");
+                    break;
+                case 'a':
+                    send_numeric_value(js, JsParamMinVelocity, "minimum velocity", numEntry, numEntryNeg);
+                    break;
+                case 's':
+                    send_numeric_value(js, JsParamMaxVelocity, "maximum velocity", numEntry, numEntryNeg);
+                    break;
+                case 'd':
+                    send_string_value(js, JsParamOpenNote, string, "string open note", numEntry, numEntryNeg);
+                    break;
+                case 'f':
+                    send_string_value(js, JsParamTrigger, string, "string trigger sensitivity", numEntry, numEntryNeg);
+                    break;
+                case 'z':
+                    string = '0';
+                    printf("String 1 (low E) selected.\n");
+                    break;
+                case 'x':
+                    string = '1';
+                    printf("String 2 (A) selected.\n");
+                    break;
+                case 'c':
+                    string = '2';
+                    printf("String 3 (D) selected.\n");
+                    break;
+                case 'v':
+                    string = '3';
+                    printf("String 4 (G) selected.\n");
                     break;
                 case 'b':
-                    if(pitchBend < 0) {
-                        fprintf(stderr, "WARNING: Pitch bend may not be supported!\n");
-                    }
-                    pitchBend = pitchBend < 0 ? 0 : (pitchBend ? 0 : 1);
-                    if(pitchBend) {
-                        printf("Turning pitch bend ON.\n");
-                    } else {
-                        printf("Turning pitch bend OFF.\n");
-                    }
-                    size = BUILD_CONFIG(buffer, JS_PARAM_NAMES[JsParamPitchBend], pitchBendType, pitchBend);
-                    if(size < 0) {
-                        fprintf(stderr, "Invalid type!\n");
-                    } else {
-                        if(midi_write_event(size, buffer) < 0) {
-                            fprintf(stderr, "Failed to write event.\n");
-                            goto error_term_cleanup;
-                        }
-                    }
+                    string = '4';
+                    printf("String 5 (B) selected.\n");
                     break;
-                case 'm':
-                    if(MPEMode < 0) {
-                        fprintf(stderr, "WARNING: MPE mode may not be supported!\n");
-                    }
-                    MPEMode = MPEMode < 0 ? 0 : (MPEMode ? 0 : 1);
-                    if(MPEMode) {
-                        printf("Turning MPE mode ON.\n");
-                    } else {
-                        printf("Turning MPE mode OFF.\n");
-                    }
-                    size = BUILD_CONFIG(buffer, JS_PARAM_NAMES[JsParamMPEMode], MPEModeType, MPEMode);
-                    if(size < 0) {
-                        fprintf(stderr, "Invalid type!\n");
-                    } else {
-                        if(midi_write_event(size, buffer) < 0) {
-                            fprintf(stderr, "Failed to write event.\n");
-                            goto error_term_cleanup;
-                        }
-                    }
+                case 'n':
+                    string = '5';
+                    printf("String 6 (high E) selected.\n");
                     break;
                 case 'q':
                     term_cleanup();
                     midi_cleanup();
                     /* will fall through loop and terminate */
             }
+        }
 
-            for(;;) {
-                size = midi_read_event(sizeof(buffer), buffer);
-                if(size > 0) {
-                    if(buffer[MIDI_CMD] == MIDI_SYSEX) {
-                        switch(buffer[JS_CMD]) {
-                            case JS_SCHEMA_RETURN:
-                                if(js_parse_json_schema(js, size, buffer) < 0) {
-                                    fprintf(stderr, "Failed to parse schema.\n");
-                                    goto error_term_cleanup;
-                                }
+        for(;;) {
+            size = midi_read_event(sizeof(buffer), buffer);
+            if(size > 0) {
+                if(buffer[MIDI_CMD] == MIDI_SYSEX) {
+                    switch(buffer[JS_CMD]) {
+                        case JS_SCHEMA_RETURN:
+                            if(js_parse_json_schema(js, size, buffer) < 0) {
+                                fprintf(stderr, "Failed to parse schema.\n");
+                                goto error_term_cleanup;
+                            }
 
-                                cur_category = 0;
+                            cur_category = 0;
 
+                            size = build_config_query(buffer, js->categories[cur_category]);
+                            if(midi_write_event(size, buffer) < 0) {
+                                fprintf(stderr, "Failed to write event.\n");
+                                goto error_term_cleanup;
+                            }
+                            break;
+                        case JS_CONFIG_RETURN:
+                        case JS_CONFIG_SET_RETURN:
+                            config = js_decode_config_value(js, size, buffer);
+                            if(config == NULL) {
+                                fprintf(stderr, "WARNING: Got no value back!\n");
+                                continue;
+                            }
+
+                            switch(lookup_param(config->CC)) {
+                                case JsParamExpression:
+                                    PRINT_BOOL_VALUE(config, "Expression", value)
+                                    break;
+                                case JsParamPitchBend:
+                                    PRINT_BOOL_VALUE(config, "Pitch bend", value)
+                                    break;
+                                case JsParamMPEMode:
+                                    PRINT_BOOL_VALUE(config, "MPE mode", value)
+                                    break;
+                                case JsParamTranspose:
+                                    print_numeric_value(config, "Transposition");
+                                    break;
+                                case JsParamSingleChan:
+                                    PRINT_BOOL_VALUE(config, "Single channel mode", value)
+                                    break;
+                                case JsParamMIDIChannel:
+                                    print_numeric_value(config, "MIDI channel");
+                                    break;
+                                case JsParamPitchBendSemitones:
+                                    print_numeric_value(config, "Pitch bend semitones");
+                                    break;
+                                case JsParamPitchBendCents:
+                                    print_numeric_value(config, "Pitch bend cents");
+                                    break;
+                                case JsParamTranscription:
+                                    PRINT_BOOL_VALUE(config, "Transcription mode", value)
+                                    break;
+                                case JsParamMinVelocity:
+                                    print_numeric_value(config, "Minimum velocity");
+                                    break;
+                                case JsParamMaxVelocity:
+                                    print_numeric_value(config, "Maximum velocity");
+                                    break;
+                                case JsParamOpenNote:
+                                    print_numeric_value(config, "String open note");
+                                    break;
+                                case JsParamTrigger:
+                                    print_numeric_value(config, "String trigger sensitivity");
+                                    break;
+                                default:
+                                    break;
+                            }
+
+                            if(cur_category == js->category_count) {
+                                js_config_print(js, config);
+                            }
+                            break;
+                        case JS_CONFIG_DONE:
+                            if(cur_category < js->category_count) {
                                 size = build_config_query(buffer, js->categories[cur_category]);
                                 if(midi_write_event(size, buffer) < 0) {
                                     fprintf(stderr, "Failed to write event.\n");
                                     goto error_term_cleanup;
                                 }
-                                break;
-                            case JS_CONFIG_RETURN:
-                            case JS_CONFIG_SET_RETURN:
-                                config = js_decode_config_value(js, size, buffer);
-                                if(config == NULL) {
-                                    fprintf(stderr, "WARNING: Got no value back!\n");
-                                    continue;
+                                cur_category++;
+                            } else if(cur_category == js->category_count) {
+                                fprintf(stderr, "Done reading config.\n");
+                                for(i = 0; i < js->config_count; i++) {
+                                    js_config_print(js, &(js->config[i]));
                                 }
-
-                                switch(lookup_param(config->CC)) {
-                                    case JsParamExpression:
-                                        JS_GET_NUM_VALUE(int, expression, config)
-                                        expressionType = config->Typ;
-                                        if(expression) {
-                                            printf("Expression is ON.\n");
-                                        } else {
-                                            printf("Expression is OFF.\n");
-                                        }
-                                        break;
-                                    case JsParamPitchBend:
-                                        JS_GET_NUM_VALUE(int, pitchBend, config)
-                                        pitchBendType = config->Typ;
-                                        if(pitchBend) {
-                                            printf("Pitch bend is ON.\n");
-                                        } else {
-                                            printf("Pitch bend is OFF.\n");
-                                        }
-                                        break;
-                                    case JsParamMPEMode:
-                                        JS_GET_NUM_VALUE(int, MPEMode, config)
-                                        MPEModeType = config->Typ;
-                                        if(MPEMode) {
-                                            printf("MPE mode is ON.\n");
-                                        } else {
-                                            printf("MPE mode is OFF.\n");
-                                        }
-                                        break;
-                                    default:
-                                        break;
-                                }
-
-                                if(cur_category == js->category_count) {
-                                    js_config_print(js, config);
-                                }
-                                break;
-                            case JS_CONFIG_DONE:
-                                if(cur_category < js->category_count) {
-                                    size = build_config_query(buffer, js->categories[cur_category]);
-                                    if(midi_write_event(size, buffer) < 0) {
-                                        fprintf(stderr, "Failed to write event.\n");
-                                        goto error_term_cleanup;
-                                    }
-                                    cur_category++;
-                                } else if(cur_category == js->category_count) {
-                                    fprintf(stderr, "Done reading config.\n");
-                                    for(i = 0; i < js->config_count; i++) {
-                                        js_config_print(js, &(js->config[i]));
-                                    }
-                                    cur_category++;
-                                }
-                                break;
-                            default:
-                                print_hex(size, buffer);
-                        }
-                    } else {
-                        channel = buffer[MIDI_CMD] & MIDI_CHANNEL_MASK;
-
-                        switch(buffer[MIDI_CMD] & MIDI_CMD_MASK) {
-                            case MIDI_CMD_NOTE_OFF:
-                                if(size != MIDI_CMD_NOTE_SIZE) {
-                                    fprintf(stderr, "WARNING: Got note off of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
-                                    if(size < MIDI_CMD_NOTE_SIZE) {
-                                        break;
-                                    }
-                                }
-                                note = buffer[MIDI_CMD_NOTE];
-                                velocity = buffer[MIDI_CMD_NOTE_VEL];
-                                size = midi_num_to_note(sizeof(buffer), (char *)buffer, note, 0);
-                                if(size <= 0) {
-                                    fprintf(stderr, "Invalid note number!\n");
-                                    printf("Note Off (%hhd): %hhd Vel: %hhd\n", channel, note, velocity);
-                                } else {
-                                    buffer[size] = '\0';
-                                    printf("Note Off (%hhd): %s (%hhd) Vel: %hhd\n", channel, buffer, note, velocity);
-                                }
-                                break;
-                            case MIDI_CMD_NOTE_ON:
-                                if(size != MIDI_CMD_NOTE_SIZE) {
-                                    fprintf(stderr, "WARNING: Got note on of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
-                                    if(size < MIDI_CMD_NOTE_SIZE) {
-                                        break;
-                                    }
-                                }
-                                note = buffer[MIDI_CMD_NOTE];
-                                velocity = buffer[MIDI_CMD_NOTE_VEL];
-                                size = midi_num_to_note(sizeof(buffer), (char *)buffer, note, 0);
-                                if(size <= 0) {
-                                    fprintf(stderr, "Invalid note number!\n");
-                                    printf("Note On (%hhd): %hhd Vel: %hhd\n", channel, note, velocity);
-                                } else {
-                                    buffer[size] = '\0';
-                                    printf("Note On (%hhd): %s (%hhd) Vel: %hhd\n", channel, buffer, note, velocity);
-                                }
-                                break;
-                            case MIDI_CMD_POLYTOUCH:
-                                if(size != MIDI_CMD_POLYTOUCH_SIZE) {
-                                    fprintf(stderr, "WARNING: Got polyphonic aftertouch event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
-                                    if(size < MIDI_CMD_POLYTOUCH_SIZE) {
-                                        break;
-                                    }
-                                }
-                                printf("Polyphonic Aftertouch (%hhd): %hhd Pressure: %hhd\n",
-                                       channel, buffer[MIDI_CMD_NOTE], buffer[MIDI_CMD_POLYTOUCH_PRESSURE]);
-                                break;
-                            case MIDI_CMD_CC:
-                                if(size != MIDI_CMD_CC_SIZE) {
-                                    fprintf(stderr, "WARNING: Got control change event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
-                                    if(size < MIDI_CMD_CC_SIZE) {
-                                        break;
-                                    }
-                                }
-                                cc = buffer[MIDI_CMD_CC_CONTROL];
-                                value = buffer[MIDI_CMD_CC_VALUE];
-                                switch(cc) {
-                                    case MIDI_CC_RPN_MSB:
-                                        RPN[channel] = MIDI_2BYTE_WORD(value, MIDI_2BYTE_WORD_LOW(RPN[channel]));
-                                        printf("Selected RPN for channel %hhd is now %s (%hd) (MSB=%hhd).\n",
-                                               channel, midi_rpn_to_string(RPN[channel]), RPN[channel], value);
-                                        break;
-                                    case MIDI_CC_RPN_LSB:
-                                        RPN[channel] = MIDI_2BYTE_WORD(MIDI_2BYTE_WORD_HIGH(RPN[channel]), value);
-                                        printf("Selected RPN for channel %hhd is now %s (%hd) (LSB=%hhd).\n",
-                                               channel, midi_rpn_to_string(RPN[channel]), RPN[channel], value);
-                                        break;
-                                    case MIDI_CC_DATA_ENTRY_MSB:
-                                        RPNdata[channel][RPN[channel]] =
-                                            MIDI_2BYTE_WORD(value, MIDI_2BYTE_WORD_LOW(RPNdata[channel][RPN[channel]]));
-                                        if(midi_parse_rpn(channel, RPN[channel], RPNdata[channel][RPN[channel]]) < 0) {
-                                            printf("RPN value %s (%hd) for channel %hhd is now %hd (MSB=%hhd).\n",
-                                                   midi_rpn_to_string(RPN[channel]), RPN[channel],
-                                                   channel, RPNdata[channel][RPN[channel]], value);
-                                        }
-                                        break;
-                                    case MIDI_CC_DATA_ENTRY_LSB:
-                                        RPNdata[channel][RPN[channel]] =
-                                            MIDI_2BYTE_WORD(MIDI_2BYTE_WORD_HIGH(RPNdata[channel][RPN[channel]]), value);
-                                        if(midi_parse_rpn(channel, RPN[channel], RPNdata[channel][RPN[channel]]) < 0) {
-                                            printf("RPN value %s (%hd) for channel %hhd is now %hd (LSB=%hhd).\n",
-                                                   midi_rpn_to_string(RPN[channel]), RPN[channel],
-                                                   channel, RPNdata[channel][RPN[channel]], value);
-                                        }
-                                        break;
-                                    default:
-                                        printf("Control Change (%hhd): Control: %s (%hhd) Value: %hhd\n",
-                                               channel, midi_cc_to_string(cc), cc, value);
-                                }
-                                break;
-                            case MIDI_CMD_PROGCH:
-                                if(size != MIDI_CMD_PROGCH_SIZE) {
-                                    fprintf(stderr, "WARNING: Got program change event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
-                                    if(size < MIDI_CMD_PROGCH_SIZE) {
-                                        break;
-                                    }
-                                }
-                                printf("Control Change (%hhd): Program: %hhd\n",
-                                       channel, buffer[MIDI_CMD_PROGCH_PROGRAM]);
-                                break;
-                            case MIDI_CMD_CHANTOUCH:
-                                if(size != MIDI_CMD_CHANTOUCH_SIZE) {
-                                    fprintf(stderr, "WARNING: Got channel aftertouch event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
-                                    if(size < MIDI_CMD_CHANTOUCH_SIZE) {
-                                        break;
-                                    }
-                                }
-                                printf("Channel Aftertouch (%hhd): Pressure: %hhd\n",
-                                       channel, buffer[MIDI_CMD_CHANTOUCH_PRESSURE]);
-                                break;
-                            case MIDI_CMD_PITCHBEND:
-                                if(size != MIDI_CMD_PITCHBEND_SIZE) {
-                                    fprintf(stderr, "WARNING: Got pitchbend event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
-                                    if(size < MIDI_CMD_PITCHBEND_SIZE) {
-                                        break;
-                                    }
-                                }
-                                printf("Pitchbend (%hhd): Value: %d\n",
-                                       channel, MIDI_2BYTE_WORD(buffer[MIDI_CMD_PITCHBEND_HIGH],
-                                                                buffer[MIDI_CMD_PITCHBEND_LOW]) -
-                                                MIDI_CMD_PITCHBEND_OFFSET);
-                                break;
-                            default:
-                                print_hex(size, buffer);
-                        }
+                                cur_category++;
+                            }
+                            break;
+                        default:
+                            print_hex(size, buffer);
                     }
                 } else {
-                    /* if no packets, sleep for a bit */
-                    break;
+                    channel = buffer[MIDI_CMD] & MIDI_CHANNEL_MASK;
+
+                    switch(buffer[MIDI_CMD] & MIDI_CMD_MASK) {
+                        case MIDI_CMD_NOTE_OFF:
+                            if(size != MIDI_CMD_NOTE_SIZE) {
+                                fprintf(stderr, "WARNING: Got note off of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                if(size < MIDI_CMD_NOTE_SIZE) {
+                                    break;
+                                }
+                            }
+                            note = buffer[MIDI_CMD_NOTE];
+                            velocity = buffer[MIDI_CMD_NOTE_VEL];
+                            size = midi_num_to_note(sizeof(buffer), (char *)buffer, note, 0);
+                            if(size <= 0) {
+                                fprintf(stderr, "Invalid note number!\n");
+                                printf("Note Off (%hhd): %hhd Vel: %hhd\n", channel, note, velocity);
+                            } else {
+                                buffer[size] = '\0';
+                                printf("Note Off (%hhd): %s (%hhd) Vel: %hhd\n", channel, buffer, note, velocity);
+                            }
+                            break;
+                        case MIDI_CMD_NOTE_ON:
+                            if(size != MIDI_CMD_NOTE_SIZE) {
+                                fprintf(stderr, "WARNING: Got note on of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                if(size < MIDI_CMD_NOTE_SIZE) {
+                                    break;
+                                }
+                            }
+                            note = buffer[MIDI_CMD_NOTE];
+                            velocity = buffer[MIDI_CMD_NOTE_VEL];
+                            size = midi_num_to_note(sizeof(buffer), (char *)buffer, note, 0);
+                            if(size <= 0) {
+                                fprintf(stderr, "Invalid note number!\n");
+                                printf("Note On (%hhd): %hhd Vel: %hhd\n", channel, note, velocity);
+                            } else {
+                                buffer[size] = '\0';
+                                printf("Note On (%hhd): %s (%hhd) Vel: %hhd\n", channel, buffer, note, velocity);
+                            }
+                            break;
+                        case MIDI_CMD_POLYTOUCH:
+                            if(size != MIDI_CMD_POLYTOUCH_SIZE) {
+                                fprintf(stderr, "WARNING: Got polyphonic aftertouch event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                if(size < MIDI_CMD_POLYTOUCH_SIZE) {
+                                    break;
+                                }
+                            }
+                            printf("Polyphonic Aftertouch (%hhd): %hhd Pressure: %hhd\n",
+                                   channel, buffer[MIDI_CMD_NOTE], buffer[MIDI_CMD_POLYTOUCH_PRESSURE]);
+                            break;
+                        case MIDI_CMD_CC:
+                            if(size != MIDI_CMD_CC_SIZE) {
+                                fprintf(stderr, "WARNING: Got control change event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                if(size < MIDI_CMD_CC_SIZE) {
+                                    break;
+                                }
+                            }
+                            cc = buffer[MIDI_CMD_CC_CONTROL];
+                            value = buffer[MIDI_CMD_CC_VALUE];
+                            switch(cc) {
+                                case MIDI_CC_RPN_MSB:
+                                    RPN[channel] = MIDI_2BYTE_WORD(value, MIDI_2BYTE_WORD_LOW(RPN[channel]));
+                                    printf("Selected RPN for channel %hhd is now %s (%hd) (MSB=%hhd).\n",
+                                           channel, midi_rpn_to_string(RPN[channel]), RPN[channel], value);
+                                    break;
+                                case MIDI_CC_RPN_LSB:
+                                    RPN[channel] = MIDI_2BYTE_WORD(MIDI_2BYTE_WORD_HIGH(RPN[channel]), value);
+                                    printf("Selected RPN for channel %hhd is now %s (%hd) (LSB=%hhd).\n",
+                                           channel, midi_rpn_to_string(RPN[channel]), RPN[channel], value);
+                                    break;
+                                case MIDI_CC_DATA_ENTRY_MSB:
+                                    RPNdata[channel][RPN[channel]] =
+                                        MIDI_2BYTE_WORD(value, MIDI_2BYTE_WORD_LOW(RPNdata[channel][RPN[channel]]));
+                                    if(midi_parse_rpn(channel, RPN[channel], RPNdata[channel][RPN[channel]]) < 0) {
+                                        printf("RPN value %s (%hd) for channel %hhd is now %hd (MSB=%hhd).\n",
+                                               midi_rpn_to_string(RPN[channel]), RPN[channel],
+                                               channel, RPNdata[channel][RPN[channel]], value);
+                                    }
+                                    break;
+                                case MIDI_CC_DATA_ENTRY_LSB:
+                                    RPNdata[channel][RPN[channel]] =
+                                        MIDI_2BYTE_WORD(MIDI_2BYTE_WORD_HIGH(RPNdata[channel][RPN[channel]]), value);
+                                    if(midi_parse_rpn(channel, RPN[channel], RPNdata[channel][RPN[channel]]) < 0) {
+                                        printf("RPN value %s (%hd) for channel %hhd is now %hd (LSB=%hhd).\n",
+                                               midi_rpn_to_string(RPN[channel]), RPN[channel],
+                                               channel, RPNdata[channel][RPN[channel]], value);
+                                    }
+                                    break;
+                                default:
+                                    printf("Control Change (%hhd): Control: %s (%hhd) Value: %hhd\n",
+                                           channel, midi_cc_to_string(cc), cc, value);
+                            }
+                            break;
+                        case MIDI_CMD_PROGCH:
+                            if(size != MIDI_CMD_PROGCH_SIZE) {
+                                fprintf(stderr, "WARNING: Got program change event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                if(size < MIDI_CMD_PROGCH_SIZE) {
+                                    break;
+                                }
+                            }
+                            printf("Control Change (%hhd): Program: %hhd\n",
+                                   channel, buffer[MIDI_CMD_PROGCH_PROGRAM]);
+                            break;
+                        case MIDI_CMD_CHANTOUCH:
+                            if(size != MIDI_CMD_CHANTOUCH_SIZE) {
+                                fprintf(stderr, "WARNING: Got channel aftertouch event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                if(size < MIDI_CMD_CHANTOUCH_SIZE) {
+                                    break;
+                                }
+                            }
+                            printf("Channel Aftertouch (%hhd): Pressure: %hhd\n",
+                                   channel, buffer[MIDI_CMD_CHANTOUCH_PRESSURE]);
+                            break;
+                        case MIDI_CMD_PITCHBEND:
+                            if(size != MIDI_CMD_PITCHBEND_SIZE) {
+                                fprintf(stderr, "WARNING: Got pitchbend event of invalid size! (%d != %d)\n", size, MIDI_CMD_NOTE_SIZE);
+                                if(size < MIDI_CMD_PITCHBEND_SIZE) {
+                                    break;
+                                }
+                            }
+                            printf("Pitchbend (%hhd): Value: %d\n",
+                                   channel, MIDI_2BYTE_WORD(buffer[MIDI_CMD_PITCHBEND_HIGH],
+                                                            buffer[MIDI_CMD_PITCHBEND_LOW]) -
+                                            MIDI_CMD_PITCHBEND_OFFSET);
+                            break;
+                        default:
+                            print_hex(size, buffer);
+                    }
                 }
+            } else {
+                /* if no packets, sleep for a bit */
+                break;
             }
-            usleep(100000);
         }
+        usleep(100000);
     }
 
     return(EXIT_SUCCESS);

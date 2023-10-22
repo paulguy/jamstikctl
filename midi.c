@@ -356,82 +356,74 @@ void _midi_print_ports() {
     jack_free(search);
 }
 
+#define _MIDI_INPORT_MASK  (1 << 0)
+#define _MIDI_OUTPORT_MASK (1 << 1)
+#define _MIDI_PORT_ID_GUITAR_IN  (1)
+#define _MIDI_PORT_ID_GUITAR_OUT (2)
+#define _MIDI_PORT_ID_THIS_IN    (3)
+#define _MIDI_PORT_ID_THIS_OUT   (4)
 void _midi_port_connect_cb(jack_port_id_t a, jack_port_id_t b, int connect, void *arg) {
     const char *namea, *nameb;
-    int is_inport = 0;
-    int is_outport = 0;
+    int porta_id = 0;
+    int portb_id = 0;
 
     namea = jack_port_name(jack_port_by_id(tctx.jack, a));
     nameb = jack_port_name(jack_port_by_id(tctx.jack, b));
 
-    if(tctx.guitar_outport_name != NULL) {
-        if(strcmp(namea, tctx.this_inport_name) == 0) {
-            is_inport = 1;
-        }else if(strcmp(nameb, tctx.this_inport_name) == 0) {
-            is_inport = 2;
-        }
-
-        if(is_inport == 1 &&
-           strcmp(nameb, tctx.guitar_outport_name) == 0) {
-            if(connect) {
-                tctx.ready |= (1 << 0);
-            } else {
-                tctx.ready &= ~(1 << 0);
-            }
-            goto connected;
-        }else if(is_inport == 2 &&
-                 strcmp(namea, tctx.guitar_outport_name) == 0) {
-            if(connect) {
-                tctx.ready |= (1 << 0);
-            } else {
-                tctx.ready &= ~(1 << 0);
-            }
-            goto connected;
-        }
+    /* meaningful port identities
+     * guitar out, guitar in, this out, this in
+     * both a or b could be any of those 4 */
+    if(tctx.guitar_inport_name != NULL && strcmp(namea, tctx.guitar_inport_name) == 0) {
+        porta_id = _MIDI_PORT_ID_GUITAR_IN;
+    } else if(tctx.guitar_outport_name != NULL && strcmp(namea, tctx.guitar_outport_name) == 0) {
+        porta_id = _MIDI_PORT_ID_GUITAR_OUT;
+    } else if(strcmp(namea, tctx.this_inport_name) == 0) {
+        porta_id = _MIDI_PORT_ID_THIS_IN;
+    } else if(strcmp(namea, tctx.this_outport_name) == 0) {
+        porta_id = _MIDI_PORT_ID_THIS_OUT;
     }
 
-    if(tctx.guitar_outport_name != NULL) {
-        if(strcmp(namea, tctx.this_outport_name) == 0) {
-            is_outport = 1;
-        }else if(strcmp(nameb, tctx.this_outport_name) == 0) {
-            is_outport = 2;
-        }
+    if(tctx.guitar_inport_name != NULL && strcmp(nameb, tctx.guitar_inport_name) == 0) {
+        portb_id = _MIDI_PORT_ID_GUITAR_IN;
+    } else if(tctx.guitar_outport_name != NULL && strcmp(nameb, tctx.guitar_outport_name) == 0) {
+        portb_id = _MIDI_PORT_ID_GUITAR_OUT;
+    } else if(strcmp(nameb, tctx.this_inport_name) == 0) {
+        portb_id = _MIDI_PORT_ID_THIS_IN;
+    } else if(strcmp(nameb, tctx.this_outport_name) == 0) {
+        portb_id = _MIDI_PORT_ID_THIS_OUT;
+    }
 
-        if(is_outport == 1 &&
-           strcmp(nameb, tctx.guitar_inport_name) == 0) {
-            if(connect) {
-                tctx.ready |= (1 << 1);
-            } else {
-                tctx.ready &= ~(1 << 1);
-            }
-            goto connected;
-        }else if(is_outport == 2 &&
-                 strcmp(namea, tctx.guitar_inport_name) == 0) {
-            if(connect) {
-                tctx.ready |= (1 << 1);
-            } else {
-                tctx.ready &= ~(1 << 1);
-            }
-            goto connected;
+    if((porta_id == _MIDI_PORT_ID_GUITAR_OUT && portb_id == _MIDI_PORT_ID_THIS_IN) ||
+       (portb_id == _MIDI_PORT_ID_GUITAR_OUT && porta_id == _MIDI_PORT_ID_THIS_IN)) {
+        if(connect) {
+            tctx.ready |= _MIDI_INPORT_MASK;
+        } else {
+            tctx.ready &= ~_MIDI_INPORT_MASK;
         }
+        goto connected;
+    } else if((porta_id == _MIDI_PORT_ID_THIS_OUT && portb_id == _MIDI_PORT_ID_GUITAR_IN) ||
+               (portb_id == _MIDI_PORT_ID_THIS_OUT && porta_id == _MIDI_PORT_ID_GUITAR_IN)) {
+        if(connect) {
+            tctx.ready |= _MIDI_OUTPORT_MASK;
+        } else {
+            tctx.ready &= ~_MIDI_OUTPORT_MASK;
+        }
+        goto connected;
     }
 
     if(connect) {
-        if(is_inport != 0) {
-            fprintf(stderr, "No, that wasn't right, connect\n%s\nto\n%s\n",
-                    tctx.guitar_outport_name, tctx.this_inport_name);
-        }
-        if(is_outport != 0) {
-            fprintf(stderr, "No, that wasn't right, connect\n%s\nto\n%s\n",
+        if(porta_id != 0 || portb_id != 0) {
+            fprintf(stderr, "No, that wasn't right, connect\n%s\nto\n%s\nand\n%s\nto\n%s\n",
+                    tctx.guitar_outport_name, tctx.this_inport_name,
                     tctx.this_outport_name, tctx.guitar_inport_name);
         }
         return;
     }
 
 connected:
-    if(tctx.ready == (1 << 0) || tctx.ready == (1 << 1)) {
+    if(tctx.ready == _MIDI_INPORT_MASK || tctx.ready == _MIDI_OUTPORT_MASK) {
         fprintf(stderr, "1 connection remaining\n");
-    } else if(tctx.ready == ((1 << 0) | (1 << 1))) {
+    } else if(tctx.ready == (_MIDI_INPORT_MASK | _MIDI_OUTPORT_MASK)) {
         fprintf(stderr, "sequence complete\n");
     }
 
@@ -439,7 +431,7 @@ connected:
 }
 
 int midi_ready() {
-    return(tctx.ready == ((1 << 0) | (1 << 1)));
+    return(tctx.ready == (_MIDI_INPORT_MASK | _MIDI_OUTPORT_MASK));
 }
 
 int midi_setup(const char *client_name,
