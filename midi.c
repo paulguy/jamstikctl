@@ -1,3 +1,24 @@
+/*
+ * Copyright 2023 paulguy <paulguy119@gmail.com>
+ *
+ * This file is part of jamstikctl.
+ *
+ * jamstikctl is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * jamstikctl is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with jamstikctl.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* TODO: thru port with optional SYSEX filter */
+
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
@@ -7,6 +28,7 @@
 #include <jack/midiport.h>
 #include <jack/ringbuffer.h>
 
+#include "terminal.h"
 #include "midi.h"
 
 #define MIDI_MAX_EVENTS (256) /* should also be plenty, maybe */
@@ -46,21 +68,28 @@ typedef struct {
     struct sigaction oint;
     struct sigaction oterm;
     struct sigaction ousr1;
-} ThreadCTX;
+} MIDI_ctx_t;
 
 /* must be global so signal handlers work. */
-ThreadCTX tctx;
+MIDI_ctx_t midictx;
 
 void print_hex(size_t size, unsigned char *buffer) {
     unsigned int i;
+    unsigned int j;
+    unsigned int row;
+    char c;
+    char temp[5*16+1];
 
-    for(i = 0; i < size; i++) {
-        printf("%02X ", buffer[i]);
-        if(buffer[i] >= ' ' && buffer[i] <= '~') {
-            printf("%c ", buffer[i]);
+    for(i = 0; i < size / 16; i++) {
+        row = (size - i < 16) ? (size - i) : 16;
+        for(j = 0; j < row; j++) {
+            c = buffer[i * 16 + j];
+            snprintf(&(temp[j * 5]), sizeof(temp) - (j * 5), "%02X %c ",
+                     c, (c >= ' ' && c <= '~') ? c : ' ');
         }
+        temp[row * 5] = '\0';
+        term_print("%s", temp);
     }
-    printf("\n");
 }
 
 char *midi_copy_string(const char *src) {
@@ -82,69 +111,69 @@ char *midi_copy_string(const char *src) {
 }
 
 int midi_activated() {
-    return(tctx.activated);
+    return(midictx.activated);
 }
 
 void midi_cleanup() {
-    if(tctx.activated) {
-        if(jack_deactivate(tctx.jack)) {
-            fprintf(stderr, "Failed to deactivate JACK client.\n");
+    if(midictx.activated) {
+        if(jack_deactivate(midictx.jack)) {
+            term_print("Failed to deactivate JACK client.");
         } else {
-            fprintf(stderr, "JACK client deactivated.\n");
+            term_print("JACK client deactivated.");
         }
     }
 
-    tctx.activated = 0;
+    midictx.activated = 0;
 
-    if(jack_client_close(tctx.jack)) {
-        fprintf(stderr, "Error closing JACK connection.\n");
+    if(jack_client_close(midictx.jack)) {
+        term_print("Error closing JACK connection.");
     } else {
-        fprintf(stderr, "JACK connection closed.\n");
+        term_print("JACK connection closed.");
     }
 
-    if(sigaction(SIGHUP, &(tctx.ohup), NULL) != 0 ||
-       sigaction(SIGINT, &(tctx.oint), NULL) != 0 ||
-       sigaction(SIGTERM, &(tctx.oterm), NULL) != 0) {
-        fprintf(stderr, "Failed to set signal handler.\n");
+    if(sigaction(SIGHUP, &(midictx.ohup), NULL) != 0 ||
+       sigaction(SIGINT, &(midictx.oint), NULL) != 0 ||
+       sigaction(SIGTERM, &(midictx.oterm), NULL) != 0) {
+        term_print("Failed to set signal handler.");
     }
-    if(sigaction(SIGUSR1, &(tctx.ousr1), NULL) != 0) {
-        fprintf(stderr, "Failed to reset signal handlers.\n");
-    }
-
-    if(tctx.this_inport_name != NULL) {
-        free(tctx.this_inport_name);
-        tctx.this_inport_name = NULL;
-    }
-    if(tctx.this_outport_name != NULL) {
-        free(tctx.this_outport_name);
-        tctx.this_outport_name = NULL;
-    }
-    if(tctx.guitar_inport_name != NULL) {
-        free(tctx.guitar_inport_name);
-        tctx.guitar_inport_name = NULL;
-    }
-    if(tctx.guitar_outport_name != NULL) {
-        free(tctx.guitar_outport_name);
-        tctx.guitar_outport_name = NULL;
+    if(sigaction(SIGUSR1, &(midictx.ousr1), NULL) != 0) {
+        term_print("Failed to reset signal handlers.");
     }
 
-    if(tctx.inEv.rb != NULL) {
-        jack_ringbuffer_free(tctx.inEv.rb);
+    if(midictx.this_inport_name != NULL) {
+        free(midictx.this_inport_name);
+        midictx.this_inport_name = NULL;
+    }
+    if(midictx.this_outport_name != NULL) {
+        free(midictx.this_outport_name);
+        midictx.this_outport_name = NULL;
+    }
+    if(midictx.guitar_inport_name != NULL) {
+        free(midictx.guitar_inport_name);
+        midictx.guitar_inport_name = NULL;
+    }
+    if(midictx.guitar_outport_name != NULL) {
+        free(midictx.guitar_outport_name);
+        midictx.guitar_outport_name = NULL;
     }
 
-    if(tctx.outEv.rb != NULL) {
-        jack_ringbuffer_free(tctx.outEv.rb);
+    if(midictx.inEv.rb != NULL) {
+        jack_ringbuffer_free(midictx.inEv.rb);
+    }
+
+    if(midictx.outEv.rb != NULL) {
+        jack_ringbuffer_free(midictx.outEv.rb);
     }
 }
 
 static void _midi_cleanup_handler(int signum) {
     midi_cleanup();
-    if(signum == SIGHUP && tctx.ohup.sa_handler != NULL) {
-        tctx.ohup.sa_handler(signum);
-    } else if(signum == SIGINT && tctx.oint.sa_handler != NULL) {
-        tctx.oint.sa_handler(signum);
-    } else if(signum == SIGTERM && tctx.oterm.sa_handler != NULL) {
-        tctx.oterm.sa_handler(signum);
+    if(signum == SIGHUP && midictx.ohup.sa_handler != NULL) {
+        midictx.ohup.sa_handler(signum);
+    } else if(signum == SIGINT && midictx.oint.sa_handler != NULL) {
+        midictx.oint.sa_handler(signum);
+    } else if(signum == SIGTERM && midictx.oterm.sa_handler != NULL) {
+        midictx.oterm.sa_handler(signum);
     }
 }
 
@@ -232,15 +261,15 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
     int retval;
 
     /* process queued up input events */
-    in = jack_port_get_buffer(tctx.in, nframes);
+    in = jack_port_get_buffer(midictx.in, nframes);
     for(i = 0;; i++) {
         if(jack_midi_event_get(&jackEvent, in, i)) {
             break;
         }
-        retval = _midi_add_event(&(tctx.inEv), jackEvent.size, jackEvent.buffer);
+        retval = _midi_add_event(&(midictx.inEv), jackEvent.size, jackEvent.buffer);
 
         if(retval < 0) {
-            printf("Failed to add event.\n");
+            term_print("Failed to add event.");
             return(-1);
         }else if(retval == 0) {
             has_output = 1;
@@ -248,30 +277,30 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
     }
 
     /* process queued up output events */
-    out = jack_port_get_buffer(tctx.out, nframes);
+    out = jack_port_get_buffer(midictx.out, nframes);
     jack_midi_clear_buffer(out);
     off_t offset = 0;
     while(offset < nframes) {
-        event = _midi_get_event(&(tctx.outEv));
+        event = _midi_get_event(&(midictx.outEv));
         if(event == NULL) {
             break;
         }
 
-        if(tctx.outEv.sysex) {
+        if(midictx.outEv.sysex) {
             /* if actively sending out a packet, continue */
-            size_t to_write = event->size - tctx.outEv.sysex;
+            size_t to_write = event->size - midictx.outEv.sysex;
             to_write = nframes < to_write ? nframes : to_write;
             if(jack_midi_event_write(out, 0,
-                                     &(event->buffer[tctx.outEv.sysex]),
+                                     &(event->buffer[midictx.outEv.sysex]),
                                      to_write)) {
-                printf("Failed to write event.\n");
+                term_print("Failed to write event.");
                 return(-3);
             }
-            tctx.outEv.sysex += to_write;
+            midictx.outEv.sysex += to_write;
 
             /* if this is the end of the packet, indicate done-ness */
-            if(tctx.outEv.sysex >= event->size) {
-                tctx.outEv.sysex = 0;
+            if(midictx.outEv.sysex >= event->size) {
+                midictx.outEv.sysex = 0;
                 offset += to_write;
             } else {
                 /* don't consume if not done */
@@ -280,11 +309,11 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
         } else {
             if(offset + event->size > nframes) {
                 /* if the packet doesn't fit, send just enough to fill */
-                tctx.outEv.sysex = nframes - offset;
+                midictx.outEv.sysex = nframes - offset;
                 if(jack_midi_event_write(out, offset,
                                          event->buffer,
                                          nframes - offset)) {
-                    printf("Failed to write event.\n");
+                    term_print("Failed to write event.");
                     return(-3);
                 }
                 /* don't consume the packet that hasn't fully sent */
@@ -293,18 +322,18 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
                 if(jack_midi_event_write(out, offset,
                                          event->buffer,
                                          event->size)) {
-                    printf("Failed to write event.\n");
+                    term_print("Failed to write event.");
                     return(-3);
                 }
                 offset += event->size;
             }
         }
 
-        _midi_consume_event(&(tctx.outEv));
+        _midi_consume_event(&(midictx.outEv));
     }
 
     if(has_output != 0) {
-        pthread_kill(tctx.pid, SIGUSR1);
+        pthread_kill(midictx.pid, SIGUSR1);
     }
 
     return(0);
@@ -312,22 +341,22 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
 
 int midi_write_event(size_t size, unsigned char *buffer) {
     /* if the device closed in another thread, don't try to do anything */
-    if(!tctx.activated) {
+    if(!midictx.activated) {
         return(-1);
     }
 
-    return(_midi_add_event(&(tctx.outEv), size, buffer));
+    return(_midi_add_event(&(midictx.outEv), size, buffer));
 }
 
 int midi_read_event(size_t size, unsigned char *buffer) {
     midi_event *ev;
     size_t evsize;
 
-    if(!tctx.activated) {
+    if(!midictx.activated) {
         return(0);
     }
 
-    ev = _midi_get_event(&(tctx.inEv));
+    ev = _midi_get_event(&(midictx.inEv));
     if(ev == NULL) {
         return(0);
     }
@@ -338,7 +367,7 @@ int midi_read_event(size_t size, unsigned char *buffer) {
     memcpy(buffer, ev->buffer, ev->size);
     evsize = ev->size;
 
-    _midi_consume_event(&(tctx.inEv));
+    _midi_consume_event(&(midictx.inEv));
 
     return(evsize);
 }
@@ -348,10 +377,10 @@ void _midi_print_ports() {
     unsigned int i;
     jack_port_t *port;
 
-    search = jack_get_ports(tctx.jack, NULL, NULL, 0);
+    search = jack_get_ports(midictx.jack, NULL, NULL, 0);
     for(i = 0; search[i] != NULL; i++) {
-        port = jack_port_by_name(tctx.jack, search[i]);
-        fprintf(stderr, "%s %02X %s\n", search[i], jack_port_flags(port), jack_port_type(port));
+        port = jack_port_by_name(midictx.jack, search[i]);
+        term_print("%s %02X %s", search[i], jack_port_flags(port), jack_port_type(port));
     }
     jack_free(search);
 }
@@ -367,71 +396,75 @@ void _midi_port_connect_cb(jack_port_id_t a, jack_port_id_t b, int connect, void
     int porta_id = 0;
     int portb_id = 0;
 
-    namea = jack_port_name(jack_port_by_id(tctx.jack, a));
-    nameb = jack_port_name(jack_port_by_id(tctx.jack, b));
+    namea = jack_port_name(jack_port_by_id(midictx.jack, a));
+    nameb = jack_port_name(jack_port_by_id(midictx.jack, b));
 
     /* meaningful port identities
      * guitar out, guitar in, this out, this in
      * both a or b could be any of those 4 */
-    if(tctx.guitar_inport_name != NULL && strcmp(namea, tctx.guitar_inport_name) == 0) {
+    if(midictx.guitar_inport_name != NULL &&
+       strcmp(namea, midictx.guitar_inport_name) == 0) {
         porta_id = _MIDI_PORT_ID_GUITAR_IN;
-    } else if(tctx.guitar_outport_name != NULL && strcmp(namea, tctx.guitar_outport_name) == 0) {
+    } else if(midictx.guitar_outport_name != NULL &&
+              strcmp(namea, midictx.guitar_outport_name) == 0) {
         porta_id = _MIDI_PORT_ID_GUITAR_OUT;
-    } else if(strcmp(namea, tctx.this_inport_name) == 0) {
+    } else if(strcmp(namea, midictx.this_inport_name) == 0) {
         porta_id = _MIDI_PORT_ID_THIS_IN;
-    } else if(strcmp(namea, tctx.this_outport_name) == 0) {
+    } else if(strcmp(namea, midictx.this_outport_name) == 0) {
         porta_id = _MIDI_PORT_ID_THIS_OUT;
     }
 
-    if(tctx.guitar_inport_name != NULL && strcmp(nameb, tctx.guitar_inport_name) == 0) {
+    if(midictx.guitar_inport_name != NULL &&
+       strcmp(nameb, midictx.guitar_inport_name) == 0) {
         portb_id = _MIDI_PORT_ID_GUITAR_IN;
-    } else if(tctx.guitar_outport_name != NULL && strcmp(nameb, tctx.guitar_outport_name) == 0) {
+    } else if(midictx.guitar_outport_name != NULL &&
+              strcmp(nameb, midictx.guitar_outport_name) == 0) {
         portb_id = _MIDI_PORT_ID_GUITAR_OUT;
-    } else if(strcmp(nameb, tctx.this_inport_name) == 0) {
+    } else if(strcmp(nameb, midictx.this_inport_name) == 0) {
         portb_id = _MIDI_PORT_ID_THIS_IN;
-    } else if(strcmp(nameb, tctx.this_outport_name) == 0) {
+    } else if(strcmp(nameb, midictx.this_outport_name) == 0) {
         portb_id = _MIDI_PORT_ID_THIS_OUT;
     }
 
     if((porta_id == _MIDI_PORT_ID_GUITAR_OUT && portb_id == _MIDI_PORT_ID_THIS_IN) ||
        (portb_id == _MIDI_PORT_ID_GUITAR_OUT && porta_id == _MIDI_PORT_ID_THIS_IN)) {
         if(connect) {
-            tctx.ready |= _MIDI_INPORT_MASK;
+            midictx.ready |= _MIDI_INPORT_MASK;
         } else {
-            tctx.ready &= ~_MIDI_INPORT_MASK;
+            midictx.ready &= ~_MIDI_INPORT_MASK;
         }
         goto connected;
     } else if((porta_id == _MIDI_PORT_ID_THIS_OUT && portb_id == _MIDI_PORT_ID_GUITAR_IN) ||
                (portb_id == _MIDI_PORT_ID_THIS_OUT && porta_id == _MIDI_PORT_ID_GUITAR_IN)) {
         if(connect) {
-            tctx.ready |= _MIDI_OUTPORT_MASK;
+            midictx.ready |= _MIDI_OUTPORT_MASK;
         } else {
-            tctx.ready &= ~_MIDI_OUTPORT_MASK;
+            midictx.ready &= ~_MIDI_OUTPORT_MASK;
         }
         goto connected;
     }
 
     if(connect) {
         if(porta_id != 0 || portb_id != 0) {
-            fprintf(stderr, "No, that wasn't right, connect\n%s\nto\n%s\nand\n%s\nto\n%s\n",
-                    tctx.guitar_outport_name, tctx.this_inport_name,
-                    tctx.this_outport_name, tctx.guitar_inport_name);
+            term_print("No, that wasn't right, connect\n%s\nto\n%s\nand\n%s\nto\n%s",
+                       midictx.guitar_outport_name, midictx.this_inport_name,
+                       midictx.this_outport_name, midictx.guitar_inport_name);
         }
         return;
     }
 
 connected:
-    if(tctx.ready == _MIDI_INPORT_MASK || tctx.ready == _MIDI_OUTPORT_MASK) {
-        fprintf(stderr, "1 connection remaining\n");
-    } else if(tctx.ready == (_MIDI_INPORT_MASK | _MIDI_OUTPORT_MASK)) {
-        fprintf(stderr, "sequence complete\n");
+    if(midictx.ready == _MIDI_INPORT_MASK || midictx.ready == _MIDI_OUTPORT_MASK) {
+        term_print("1 connection remaining");
+    } else if(midictx.ready == (_MIDI_INPORT_MASK | _MIDI_OUTPORT_MASK)) {
+        term_print("sequence complete");
     }
 
-    pthread_kill(tctx.pid, SIGUSR1);
+    pthread_kill(midictx.pid, SIGUSR1);
 }
 
 int midi_ready() {
-    return(tctx.ready == (_MIDI_INPORT_MASK | _MIDI_OUTPORT_MASK));
+    return(midictx.ready == (_MIDI_INPORT_MASK | _MIDI_OUTPORT_MASK));
 }
 
 int midi_setup(const char *client_name,
@@ -444,100 +477,100 @@ int midi_setup(const char *client_name,
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
 
-    tctx.activated = 0;
-    tctx.ready = 0;
-    tctx.pid = pid;
-    tctx.this_inport_name = NULL;
-    tctx.this_outport_name = NULL;
-    tctx.guitar_inport_name = NULL;
-    tctx.guitar_outport_name = NULL;
-    tctx.inEv.next_event = 0;
-    tctx.inEv.rb = NULL;
-    tctx.inEv.sysex = 0;
-    tctx.outEv.next_event = 0;
-    tctx.outEv.rb = NULL;
-    tctx.outEv.sysex = 0;
+    midictx.activated = 0;
+    midictx.ready = 0;
+    midictx.pid = pid;
+    midictx.this_inport_name = NULL;
+    midictx.this_outport_name = NULL;
+    midictx.guitar_inport_name = NULL;
+    midictx.guitar_outport_name = NULL;
+    midictx.inEv.next_event = 0;
+    midictx.inEv.rb = NULL;
+    midictx.inEv.sysex = 0;
+    midictx.outEv.next_event = 0;
+    midictx.outEv.rb = NULL;
+    midictx.outEv.sysex = 0;
 
-    tctx.jack = jack_client_open(client_name, JackNoStartServer, &jstatus);
-    if(tctx.jack == NULL) {
-        fprintf(stderr, "Failed to open JACK connection.\n");
+    midictx.jack = jack_client_open(client_name, JackNoStartServer, &jstatus);
+    if(midictx.jack == NULL) {
+        term_print("Failed to open JACK connection.");
         return(-1);
     }
 
-    if(sigaction(SIGHUP, &sa, &(tctx.ohup)) != 0 ||
-       sigaction(SIGINT, &sa, &(tctx.oint)) != 0 ||
-       sigaction(SIGTERM, &sa, &(tctx.oterm)) != 0) {
-        fprintf(stderr, "Failed to set signal handler.\n");
+    if(sigaction(SIGHUP, &sa, &(midictx.ohup)) != 0 ||
+       sigaction(SIGINT, &sa, &(midictx.oint)) != 0 ||
+       sigaction(SIGTERM, &sa, &(midictx.oterm)) != 0) {
+        term_print("Failed to set signal handler.");
     }
     sa.sa_handler = _midi_usr1_handler;
-    if(sigaction(SIGUSR1, &sa, &(tctx.ousr1)) != 0) {
-        fprintf(stderr, "Failed to set signal handler.\n");
+    if(sigaction(SIGUSR1, &sa, &(midictx.ousr1)) != 0) {
+        term_print("Failed to set signal handler.");
     }
 
-    tctx.in = jack_port_register(tctx.jack,
-                                 inport_name,
-                                 JACK_DEFAULT_MIDI_TYPE,
-                                 JackPortIsInput,
-                                 0);
-    if(tctx.in == NULL) {
-        fprintf(stderr, "Failed to register in port.\n");
+    midictx.in = jack_port_register(midictx.jack,
+                                    inport_name,
+                                    JACK_DEFAULT_MIDI_TYPE,
+                                    JackPortIsInput,
+                                    0);
+    if(midictx.in == NULL) {
+        term_print("Failed to register in port.");
         midi_cleanup();
         return(-1);
     }
-    tctx.this_inport_name = midi_copy_string(jack_port_name(tctx.in));
-    if(tctx.this_inport_name == NULL) {
-        midi_cleanup();
-        return(-1);
-    }
-
-    tctx.out = jack_port_register(tctx.jack,
-                                  outport_name,
-                                  JACK_DEFAULT_MIDI_TYPE,
-                                  JackPortIsOutput,
-                                  0);
-    if(tctx.out == NULL) {
-        fprintf(stderr, "Failed to register out port.\n");
-        midi_cleanup();
-        return(-1);
-    }
-    tctx.this_outport_name = midi_copy_string(jack_port_name(tctx.out));
-    if(tctx.this_outport_name == NULL) {
+    midictx.this_inport_name = midi_copy_string(jack_port_name(midictx.in));
+    if(midictx.this_inport_name == NULL) {
         midi_cleanup();
         return(-1);
     }
 
-    tctx.inEv.rb = jack_ringbuffer_create(sizeof(midi_event *) * MIDI_MAX_EVENTS);
-    if(tctx.inEv.rb == NULL) {
-        fprintf(stderr, "Failed to create input ringbuffer.\n");
+    midictx.out = jack_port_register(midictx.jack,
+                                     outport_name,
+                                     JACK_DEFAULT_MIDI_TYPE,
+                                     JackPortIsOutput,
+                                     0);
+    if(midictx.out == NULL) {
+        term_print("Failed to register out port.");
+        midi_cleanup();
+        return(-1);
+    }
+    midictx.this_outport_name = midi_copy_string(jack_port_name(midictx.out));
+    if(midictx.this_outport_name == NULL) {
         midi_cleanup();
         return(-1);
     }
 
-    tctx.outEv.rb = jack_ringbuffer_create(sizeof(midi_event *) * MIDI_MAX_EVENTS);
-    if(tctx.outEv.rb == NULL) {
-        fprintf(stderr, "Failed to create output ringbuffer.\n");
+    midictx.inEv.rb = jack_ringbuffer_create(sizeof(midi_event *) * MIDI_MAX_EVENTS);
+    if(midictx.inEv.rb == NULL) {
+        term_print("Failed to create input ringbuffer.");
         midi_cleanup();
         return(-1);
     }
 
-    if(jack_set_port_connect_callback(tctx.jack, _midi_port_connect_cb, NULL)) {
-        fprintf(stderr, "Failed to set JACK port connect callback.\n");
+    midictx.outEv.rb = jack_ringbuffer_create(sizeof(midi_event *) * MIDI_MAX_EVENTS);
+    if(midictx.outEv.rb == NULL) {
+        term_print("Failed to create output ringbuffer.");
         midi_cleanup();
         return(-1);
     }
 
-    if(jack_set_process_callback(tctx.jack, _midi_process, NULL)) {
-        fprintf(stderr, "Failed to set JACK process callback.\n");
+    if(jack_set_port_connect_callback(midictx.jack, _midi_port_connect_cb, NULL)) {
+        term_print("Failed to set JACK port connect callback.");
         midi_cleanup();
         return(-1);
     }
 
-    if(jack_activate(tctx.jack)) {
-        fprintf(stderr, "Failed to activate JACK client.\n");
+    if(jack_set_process_callback(midictx.jack, _midi_process, NULL)) {
+        term_print("Failed to set JACK process callback.");
         midi_cleanup();
         return(-1);
     }
-    tctx.activated = 1;
+
+    if(jack_activate(midictx.jack)) {
+        term_print("Failed to activate JACK client.");
+        midi_cleanup();
+        return(-1);
+    }
+    midictx.activated = 1;
 
     return(0);
 }
@@ -546,9 +579,9 @@ char *midi_find_port(const char *pattern, unsigned long flags) {
     const char **search;
     char *name;
 
-    search = jack_get_ports(tctx.jack, pattern, NULL, flags);
+    search = jack_get_ports(midictx.jack, pattern, NULL, flags);
     if(search == NULL || search[0] == NULL) {
-        fprintf(stderr, "No ports found for criteria.\n");
+        term_print("No ports found for criteria.");
         goto error;
     }
 
@@ -571,65 +604,68 @@ int _midi_connect(const char *src, const char *dst) {
     int err, srcflags, dstflags;
     const char *srctype, *dsttype;
 
-    err = jack_connect(tctx.jack, src, dst);
+    err = jack_connect(midictx.jack, src, dst);
     if(err == 0) {
         return(0);
     }
 
-    fprintf(stderr, "jack_connect() returned error %d (%s)\n", err, strerror(err));
+    term_print("jack_connect() returned error %d (%s)",
+               err, strerror(err));
 
-    if(tctx.jack == NULL) {
-        fprintf(stderr, "Jack client is NULL.\n");
+    if(midictx.jack == NULL) {
+        term_print("Jack client is NULL.");
         return(err);
     }
     if(src == NULL) {
-        fprintf(stderr, "Source port name is NULL.\n");
+        term_print("Source port name is NULL.");
         return(err);
     }
     if(dst == NULL) {
-        fprintf(stderr, "Destination port name is NULL.\n");
+        term_print("Destination port name is NULL.");
         return(err);
     }
-    srcport = jack_port_by_name(tctx.jack, src);
+    srcport = jack_port_by_name(midictx.jack, src);
     if(srcport == NULL) {
-        fprintf(stderr, "Got NULL source port.\n");
+        term_print("Got NULL source port.");
         return(err);
     }
-    dstport = jack_port_by_name(tctx.jack, dst);
+    dstport = jack_port_by_name(midictx.jack, dst);
     if(dstport == NULL) {
-        fprintf(stderr, "Got NULL destination port.\n");
+        term_print("Got NULL destination port.");
         return(err);
     }
     srcflags = jack_port_flags(srcport);
     if(!(srcflags & JackPortIsOutput)) {
-        fprintf(stderr, "Source port isn't an output. Flags: %02X\n", srcflags);
+        term_print("Source port isn't an output. Flags: %02X", srcflags);
         return(err);
     }
     dstflags = jack_port_flags(dstport);
     if(!(dstflags & JackPortIsInput)) {
-        fprintf(stderr, "Destination port isn't an input. Flags: %02X\n", dstflags);
+        term_print("Destination port isn't an input. Flags: %02X", dstflags);
         return(err);
     }
     srctype = jack_port_type(srcport);
     dsttype = jack_port_type(dstport);
     if(strcmp(srctype, dsttype) != 0) {
-        fprintf(stderr, "Different source and destination port types. %s != %s", srctype, dsttype);
+        term_print("Different source and destination port types. %s != %s",
+                   srctype, dsttype);
         return(err);
     }
 
-    fprintf(stderr, "Unknown error. %s 0x%02X %s, %s 0x%02X %s\n", src, srcflags, srctype, dst, dstflags, dsttype);
+    term_print("Unknown error. %s 0x%02X %s, %s 0x%02X %s",
+               src, srcflags, srctype, dst, dstflags, dsttype);
 
     return(err);
 }
 
 int midi_attach_in_port_by_name(const char *name) {
-    tctx.guitar_outport_name = midi_copy_string(name);
-    if(tctx.guitar_outport_name == NULL) {
+    midictx.guitar_outport_name = midi_copy_string(name);
+    if(midictx.guitar_outport_name == NULL) {
         return(-1);
     }
 
     /* source out to this in */
-    if(_midi_connect(tctx.guitar_outport_name, tctx.this_inport_name) != 0) {
+    if(_midi_connect(midictx.guitar_outport_name, midictx.this_inport_name) != 0) {
         return(-1);
     }
 
@@ -637,13 +673,13 @@ int midi_attach_in_port_by_name(const char *name) {
 }
 
 int midi_attach_out_port_by_name(const char *name) {
-    tctx.guitar_inport_name = midi_copy_string(name);
-    if(tctx.guitar_inport_name == NULL) {
+    midictx.guitar_inport_name = midi_copy_string(name);
+    if(midictx.guitar_inport_name == NULL) {
         return(-1);
     }
 
     /* this out to source in */
-    if(_midi_connect(tctx.this_outport_name, tctx.guitar_inport_name) != 0) {
+    if(_midi_connect(midictx.this_outport_name, midictx.guitar_inport_name) != 0) {
         return(-1);
     }
 
@@ -658,8 +694,8 @@ int midi_num_to_note(size_t size, char *buf, unsigned int note, int flat) {
         /* nothing written */
         return(0);
     }
-    int num = (note - 21) % 12;
-    int octave = (note - 21) / 12;
+    int num = ((int)note - 21) % 12;
+    int octave = ((int)note - 21) / 12;
     int len;
 
     switch(num) {
@@ -672,20 +708,22 @@ int midi_num_to_note(size_t size, char *buf, unsigned int note, int flat) {
         case 11:
             /* naturals */
             if(octave < 0) {
+                if(size < 4) {
+                    return(4);
+                }
+                len = 4;
+                buf[0] = NOTE_LOOKUP[num];
+                buf[1] = ' ';
+                buf[2] = '-';
+                buf[3] = OCTAVE_LOOKUP[-octave];
+            } else {
                 if(size < 3) {
                     return(3);
                 }
                 len = 3;
                 buf[0] = NOTE_LOOKUP[num];
-                buf[1] = '-';
-                buf[2] = OCTAVE_LOOKUP[-octave];
-            } else {
-                if(size < 2) {
-                    return(2);
-                }
-                len = 2;
-                buf[0] = NOTE_LOOKUP[num];
-                buf[1] = OCTAVE_LOOKUP[octave];
+                buf[1] = ' ';
+                buf[2] = OCTAVE_LOOKUP[octave];
             }
             break;
         default:
@@ -1028,20 +1066,21 @@ const char *midi_rpn_to_string(unsigned short rpn) {
 int midi_parse_rpn(unsigned char channel, unsigned short rpn, unsigned short data) {
     switch(rpn) {
         case MIDI_RPN_PITCH_BEND_SENSITIVITY:
-            fprintf(stderr, "Channel %hhd pitchbend sensitivity is now %hd cents.\n",
-                    channel, MIDI_2BYTE_WORD_HIGH(data) * 100 + MIDI_2BYTE_WORD_LOW(data));
+            term_print("Channel %hhd pitchbend sensitivity is now %hd cents.",
+                       channel, MIDI_2BYTE_WORD_HIGH(data) * 100 + MIDI_2BYTE_WORD_LOW(data));
             return(0);
         case MIDI_RPN_CHANNEL_FINE_TUNING:
-            fprintf(stderr, "Channel %hhd fine tuning is now %f cents.\n",
-                    channel, ((float)data / MIDI_2BYTE_WORD_MAX * 200.0) - 100.0);
+            term_print("Channel %hhd fine tuning is now %f cents.",
+                       channel, ((float)data / MIDI_2BYTE_WORD_MAX * 200.0) - 100.0);
             return(0);
         case MIDI_RPN_CHANNEL_COARSE_TUNING:
-            fprintf(stderr, "Channel %hhd coarse tuning is now %f cents.\n",
-                    channel, ((float)data / MIDI_2BYTE_WORD_MAX * 12700.0) - 6400.0);
+            term_print("Channel %hhd coarse tuning is now %f cents.",
+                       channel, ((float)data / MIDI_2BYTE_WORD_MAX * 12700.0) - 6400.0);
             return(0);
         case MIDI_RPN_MPE_CONFIGURATION_MESSAGE:
             if(channel == 0) {
-                fprintf(stderr, "MPE channel range is %hd.\n", MIDI_2BYTE_WORD_HIGH(data));
+                term_print("MPE channel range is %hd.",
+                           MIDI_2BYTE_WORD_HIGH(data));
                 return(0);
             }
     }

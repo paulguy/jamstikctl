@@ -1,3 +1,22 @@
+/*
+ * Copyright 2023 paulguy <paulguy119@gmail.com>
+ *
+ * This file is part of jamstikctl.
+ *
+ * jamstikctl is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * jamstikctl is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with jamstikctl.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include <pthread.h>
 
 #include <jack/jack.h>
@@ -21,30 +40,30 @@
 #define MIDI_CMD_NOTE_ON (0x90)
 /* applie to above */
 #define MIDI_CMD_NOTE_VEL (2)
-#define MIDI_CMD_NOTE_SIZE MIDI_CMD_NOTE_VEL+1
+#define MIDI_CMD_NOTE_SIZE (MIDI_CMD_NOTE_VEL+1)
 #define MIDI_CMD_POLYTOUCH (0xA0)
 #define MIDI_CMD_POLYTOUCH_PRESSURE (2)
-#define MIDI_CMD_POLYTOUCH_SIZE MIDI_CMD_POLYTOUCH_PRESSURE+1
+#define MIDI_CMD_POLYTOUCH_SIZE (MIDI_CMD_POLYTOUCH_PRESSURE+1)
 /* applies to above 3 */
 #define MIDI_CMD_NOTE (1)
 
 #define MIDI_CMD_CC (0xB0)
 #define MIDI_CMD_CC_CONTROL (1)
 #define MIDI_CMD_CC_VALUE (2)
-#define MIDI_CMD_CC_SIZE MIDI_CMD_CC_VALUE+1
+#define MIDI_CMD_CC_SIZE (MIDI_CMD_CC_VALUE+1)
 
 #define MIDI_CMD_PROGCH (0xC0)
 #define MIDI_CMD_PROGCH_PROGRAM (1)
-#define MIDI_CMD_PROGCH_SIZE MIDI_CMD_PROGCH_PROGRAM+1
+#define MIDI_CMD_PROGCH_SIZE (MIDI_CMD_PROGCH_PROGRAM+1)
 
 #define MIDI_CMD_CHANTOUCH (0xD0)
 #define MIDI_CMD_CHANTOUCH_PRESSURE (1)
-#define MIDI_CMD_CHANTOUCH_SIZE MIDI_CMD_CHANTOUCH_PRESSURE+1
+#define MIDI_CMD_CHANTOUCH_SIZE (MIDI_CMD_CHANTOUCH_PRESSURE+1)
 
 #define MIDI_CMD_PITCHBEND (0xE0)
 #define MIDI_CMD_PITCHBEND_LOW (1)
 #define MIDI_CMD_PITCHBEND_HIGH (2)
-#define MIDI_CMD_PITCHBEND_SIZE MIDI_CMD_PITCHBEND_HIGH+1
+#define MIDI_CMD_PITCHBEND_SIZE (MIDI_CMD_PITCHBEND_HIGH+1)
 #define MIDI_CMD_PITCHBEND_OFFSET (8192)
 
 #define MIDI_2BYTE_WORD(HIGH, LOW)  ((LOW) | ((HIGH) << 7))

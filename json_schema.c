@@ -1,7 +1,27 @@
+/*
+ * Copyright 2023 paulguy <paulguy119@gmail.com>
+ *
+ * This file is part of jamstikctl.
+ *
+ * jamstikctl is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * jamstikctl is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with jamstikctl.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <json-c/json.h>
 
+#include "terminal.h"
 #include "json_schema.h"
 #include "midi.h"
 #include "packed_values.h"
@@ -219,12 +239,12 @@ json_object *json_tokenize_whole_string(size_t len, const unsigned char *buf) {
         parsed = json_tokener_get_parse_end(tok);
     } while(jerr == json_tokener_continue);
     if(jerr != json_tokener_success) {
-        fprintf(stderr, "Error: %s\n", json_tokener_error_desc(jerr));
+        term_print("Error: %s", json_tokener_error_desc(jerr));
         return(NULL);
     }
 
     if(parsed < len) {
-        fprintf(stderr, "Extra chars %lu  parsed %lu\n", len - parsed, parsed);
+        term_print("Extra chars %lu  parsed %lu", len - parsed, parsed);
     }
 
     json_tokener_free(tok);
@@ -250,7 +270,7 @@ int find_category(JsInfo *js, const char *name) {
     char **categories;
 
     if(strlen(name) != JS_SCHEMA_NAME_LEN) {
-        fprintf(stderr, "Get category in schema that's the wrong length, should be JSON_SCHEMA_NAME_LEN!\n");
+        term_print("Get category in schema that's the wrong length, should be JSON_SCHEMA_NAME_LEN!");
         return(-1);
     }
 
@@ -262,7 +282,7 @@ int find_category(JsInfo *js, const char *name) {
 
     categories = realloc(js->categories, sizeof(char **) * (js->category_count + 1));
     if(categories == NULL) {
-        fprintf(stderr, "Failed to allocate memory!\n");
+        term_print("Failed to allocate memory!");
         return(-1);
     }
     js->categories = categories;
@@ -278,7 +298,7 @@ JsInfo *js_init() {
 
     js = malloc(sizeof(JsInfo));
     if(js == NULL) {
-        fprintf(stderr, "Failed to allocate memory!\n");
+        term_print("Failed to allocate memory!");
         return(NULL);
     }
 
@@ -311,23 +331,23 @@ int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
 
     jobj = json_tokenize_whole_string(size - JS_SCHEMA_START - MIDI_SYSEX_TAIL, buf);
     if(jobj == NULL) {
-        fprintf(stderr, "Couldn't parse JSON string.\n");
+        term_print("Couldn't parse JSON string.");
         goto error;
     }
 
     json_got = json_object_object_get_ex(jobj, "Schema", &schema);
     if(!json_got) {
-        fprintf(stderr, "Couldn't get schema.");
+        term_print("Couldn't get schema.");
         goto error_put_json;
     }
     if(json_object_get_type(schema) != json_type_array) {
-        fprintf(stderr, "Schema type isn't array.");
+        term_print("Schema type isn't array.");
         goto error_put_json;
     }
     js->config_count = json_object_array_length(schema);
     js->config = malloc(sizeof(JsConfig) * js->config_count);
     if(js->config == NULL) {
-        fprintf(stderr, "Failed to allocate memory for schema list.\n");
+        term_print("Failed to allocate memory for schema list.");
         goto error_put_json;
     }
     for(i = 0; i < js->config_count; i++) {
@@ -335,7 +355,7 @@ int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
 
         json_item = json_object_array_get_idx(schema, i);
         if(json_object_get_type(json_item) != json_type_object) {
-            fprintf(stderr, "Schema item type isn't object.");
+            term_print("Schema item type isn't object.");
             goto error_free_memory;
         }
         lo_value = NULL;
@@ -347,29 +367,30 @@ int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
             item_value = json_object_iter_peek_value(&schema_iter);
             if(strcmp(item_name, "CC") == 0) {
                 if(json_object_get_type(item_value) != json_type_string) {
-                    fprintf(stderr, "Item CC is not string.");
+                    term_print("Item CC is not string.");
                     goto error_free_memory;
                 }
                 json_string = json_object_get_string(item_value);
                 if(strlen(json_string) != JS_SCHEMA_NAME_LEN) {
-                    fprintf(stderr, "Get name in schema that's the wrong length, should be JSON_SCHEMA_NAME_LEN!\n");
+                    term_print("Get name in schema that's the wrong length, should be JSON_SCHEMA_NAME_LEN!");
                     goto error_free_memory;
                 }
                 js->config[i].CC = midi_copy_string(json_string);
             } else if(strcmp(item_name, "Desc") == 0) {
                 if(json_object_get_type(item_value) != json_type_string) {
-                    fprintf(stderr, "Item Desc is not string.");
+                    term_print("Item Desc is not string.");
                     goto error_free_memory;
                 }
                 js->config[i].Desc = midi_copy_string(json_object_get_string(item_value));
             } else if(strcmp(item_name, "Typ") == 0) {
                 if(json_object_get_type(item_value) != json_type_int) {
-                    fprintf(stderr, "Item Typ is not int.");
+                    term_print("Item Typ is not int.");
                     goto error_free_memory;
                 }
                 js->config[i].Typ = json_object_get_int(item_value);
                 if(!js_config_get_type_is_valid(js->config[i].Typ)) {
-                    fprintf(stderr, "Got unknown/invalid type %i!", js->config[i].Typ);
+                    term_print("Got unknown/invalid type %i!",
+                               js->config[i].Typ);
                     goto error_free_memory;
                 }
             } else if(strcmp(item_name, "Lo") == 0) {
@@ -378,19 +399,19 @@ int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
                 hi_value = item_value;
             } else if(strcmp(item_name, "Step") == 0) {
                 if(json_object_get_type(item_value) != json_type_int) {
-                    fprintf(stderr, "Item Step is not int.");
+                    term_print("Item Step is not int.");
                     goto error_free_memory;
                 }
                 js->config[i].Step = json_object_get_int(item_value);
             } else if(strcmp(item_name, "TT") == 0) {
                 if(json_object_get_type(item_value) != json_type_int) {
-                    fprintf(stderr, "Item TT is not int.");
+                    term_print("Item TT is not int.");
                     goto error_free_memory;
                 }
                 js->config[i].TT = json_object_get_int(item_value);
             } else if(strcmp(item_name, "Cat") == 0) {
                 if(json_object_get_type(item_value) != json_type_string) {
-                    fprintf(stderr, "Item Cat is not string.");
+                    term_print("Item Cat is not string.");
                     goto error_free_memory;
                 }
                 json_string = json_object_get_string(item_value);
@@ -401,12 +422,13 @@ int js_parse_json_schema(JsInfo *js, size_t size, unsigned char *buf) {
                 js->config[i].Cat = category;
             } else if(strcmp(item_name, "F") == 0) {
                 if(json_object_get_type(item_value) != json_type_int) {
-                    fprintf(stderr, "Item F is not int.");
+                    term_print("Item F is not int.");
                     goto error_free_memory;
                 }
                 js->config[i].F = json_object_get_int(item_value);
             } else {
-                fprintf(stderr, "Unknown field %s type %s.", item_name, json_type_to_name(json_object_get_type(item_value)));
+                term_print("Unknown field %s type %s.",
+                           item_name, json_type_to_name(json_object_get_type(item_value)));
             }
             json_object_iter_next(&schema_iter);
         }
@@ -461,51 +483,46 @@ void js_free(JsInfo *js) {
 
 void js_config_print(JsInfo *js, JsConfig *config) {
     unsigned int i;
+    const char *category = "(uncategorized)";
+    /* This will probably be more of a debug function in the future, so just
+     * hard code this for convenience for now. */
+    const char *flags[7];
 
-    printf("Category: ");
-    if(config->Cat < 0 || (unsigned int)config->Cat > js->category_count) {
-        printf("(uncategorized)");
-    } else {
-        printf("%s", js->categories[config->Cat]);
+    if(config->Cat >= 0 || (unsigned int)config->Cat <= js->category_count) {
+        category = js->categories[config->Cat];
     }
 
-    printf("  Name: %s", config->CC);
-    if(config->Desc != NULL && strcmp(config->CC, config->Desc) != 0) {
-        printf("  Description: %s", config->Desc);
+    for(i = 0; i < 7; i++) {
+        flags[i] = js_config_flag_to_name(config->F & (1 << i));
     }
 
-    printf("  Type: %s", js_config_type_to_name(config->Typ));
     if(js_config_get_type_is_signed(config->Typ)) {
-        if(config->Lo.sint != config->Hi.sint) {
-            printf("  Low: %ld  Hi: %ld", config->Lo.sint, config->Hi.sint);
-        }
+        term_print("Category: %s  Name: %s  Description: %s  Type: %s  Lo: %ld  Hi: %ld  Step: %ld  Control: %s  Flags: %u (%s %s %s %s %s %s %s)",
+                   category, config->CC, config->Desc,
+                   js_config_type_to_name(config->Typ),
+                   config->Lo.sint, config->Hi.sint, config->Step,
+                   js_config_control_to_name(config->TT), config->F,
+                   flags[0], flags[1], flags[2], flags[3], flags[4], flags[5], flags[6]);
     } else {
-        if(config->Lo.uint != config->Hi.uint) {
-            printf("  Low: %lu  Hi: %lu", config->Lo.uint, config->Hi.uint);
-        }
+        term_print("Category: %s  Name: %s  Description: %s  Type: %s  Lo: %lu  Hi: %lu  Step: %ld  Control: %s  Flags: %u (%s %s %s %s %s %s %s)",
+                   category, config->CC, config->Desc,
+                   js_config_type_to_name(config->Typ),
+                   config->Lo.uint, config->Hi.uint, config->Step,
+                   js_config_control_to_name(config->TT), config->F,
+                   flags[0], flags[1], flags[2], flags[3], flags[4], flags[5], flags[6]);
     }
-    if(config->Step > 0) {
-        printf("  Step: %d", config->Step);
-    }
-    printf("  Control: %s", js_config_control_to_name(config->TT));
-    printf("  Flags:");
-    for(i = 1; i <= SF_MAX_FLAG; i <<= 1) {
-        printf(" %s", js_config_flag_to_name(config->F & i));
-    }
-    printf("\n");
 
-    printf(" Value: ");
     if(!config->validValue) {
-        printf("Not set!\n");
+        term_print("Not set!");
     } else {
         if(js_config_get_type_is_numeric(config->Typ)) {
             if(js_config_get_type_is_signed(config->Typ)) {
-                printf("%ld\n", config->val.sint);
+                term_print("Value: %ld", config->val.sint);
             } else {
-                printf("%lu\n", config->val.uint);
+                term_print("Value: %lu", config->val.uint);
             }
         } else {
-            printf("\"%s\"\n", config->val.text);
+            term_print("Value: \"%s\"", config->val.text);
         }
     }
 }
@@ -523,35 +540,37 @@ JsConfig *js_config_find(JsInfo *js, const char *name) {
 }
 
 JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *buf) {
+    char temp[JS_CONFIG_NAME_LEN+1];
+
     if((size < JS_CONFIG_TYPE + 1u + MIDI_SYSEX_TAIL)) {
-        fprintf(stderr, "Config packet too short for necessary fields! (%lu)\n", size);
+        term_print("Config packet too short for necessary fields! (%lu)", size);
         return(NULL);
     } else {
         int type_size = js_config_get_type_size(buf[JS_CONFIG_TYPE]);
         if(type_size < 0) {
-            fprintf(stderr, "Invalid config type %hhu!\n", buf[JS_CONFIG_TYPE]);
+            term_print("Invalid config type %hhu!", buf[JS_CONFIG_TYPE]);
             return(NULL);
         }
         if(size < JS_CONFIG_VALUE + (unsigned int)type_size + MIDI_SYSEX_TAIL) {
-            fprintf(stderr, "Config packet too short! (%lu)\n", size);
+            term_print("Config packet too short! (%lu)", size);
             return(NULL);
         }
     }
 
     if(js->config_count == 0) {
-        fprintf(stderr, "WARNING: Ignored a too-early ");
-        fwrite(&(buf[JS_CONFIG_NAME]), JS_CONFIG_NAME_LEN, 1, stderr);
-        fprintf(stderr, " report!\n");
+        memcpy(temp, &(buf[JS_CONFIG_NAME]), JS_CONFIG_NAME_LEN);
+        temp[sizeof(temp)-1] = '\0';
+        term_print("WARNING: Ignored a too-early %s report!", temp);
         return(NULL);
     }
 
     JsConfig *config = js_config_find(js, (const char *)&(buf[JS_CONFIG_NAME]));
     if(config == NULL) {
-        fprintf(stderr, "WARNING: Got config for item \"%s\" not in schema!", &(buf[JS_CONFIG_NAME]));
-        fprintf(stderr, "  New value will be added to schema.\n");
+        term_print("WARNING: Got config for item \"%s\" not in schema!", &(buf[JS_CONFIG_NAME]));
+        term_print("  New value will be added to schema.");
         JsConfig *tmp = malloc(sizeof(JsConfig) * (js->config_count + 1));
         if(tmp == NULL) {
-            fprintf(stderr, "Failed to allocate memory!\n");
+            term_print("Failed to allocate memory!");
             return(NULL);
         }
         js->config = tmp;
@@ -560,7 +579,7 @@ JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *b
         default_config(config);
         config->CC = malloc(JS_SCHEMA_NAME_LEN + 1);
         if(config->CC == NULL) {
-            fprintf(stderr, "Failed to allocate memory!\n");
+            term_print("Failed to allocate memory!");
             return(NULL);
         }
         memcpy(config->CC, &(buf[JS_CONFIG_NAME]), JS_CONFIG_NAME_LEN);
@@ -571,11 +590,11 @@ JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *b
     }
 
     if(config->Typ != buf[JS_CONFIG_TYPE]) {
-        fprintf(stderr, "WARNING: Received value with mismatched type from schema!\n");
-        fprintf(stderr, "  Old: %hhu (%s)  New: %hhu (%s)\n",
-                config->Typ, js_config_type_to_short_name(config->Typ),
-                buf[JS_CONFIG_TYPE], js_config_type_to_short_name(buf[JS_CONFIG_TYPE]));
-        fprintf(stderr, "  New type will be recorded.\n");
+        term_print("WARNING: Received value with mismatched type from schema!");
+        term_print("  Old: %hhu (%s)  New: %hhu (%s)",
+                   config->Typ, js_config_type_to_short_name(config->Typ),
+                   buf[JS_CONFIG_TYPE], js_config_type_to_short_name(buf[JS_CONFIG_TYPE]));
+        term_print("  New type will be recorded.");
     }
 
     switch(buf[JS_CONFIG_TYPE]) {
@@ -625,7 +644,7 @@ JsConfig *js_decode_config_value(JsInfo *js, size_t size, const unsigned char *b
 
 int js_config_get_bool_value(JsConfig *config) {
     if(!js_config_get_type_is_numeric(config->Typ)) {
-        fprintf(stderr, "Tried to get boolean value from nonnumeric type!\n");
+        term_print("Tried to get boolean value from nonnumeric type!");
     } else {
         if(js_config_get_type_is_signed(config->Typ)) {
             if(config->val.sint) {
