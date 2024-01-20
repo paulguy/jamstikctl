@@ -23,15 +23,6 @@
 #include <string.h>
 #include <curses.h>
 #include <wchar.h>
-/*
-#include <termios.h>
-#include <term.h>
-#include <errno.h>
-#include <sys/select.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <signal.h>
-*/
 
 typedef struct {
     WINDOW *main_term;
@@ -183,7 +174,7 @@ void term_cleanup() {
 int term_setup(int only_print) {
     termctx.main_term = NULL;
 
-    if(only_print) {
+    if(!only_print) {
         termctx.main_term = initscr();
         if(termctx.main_term == NULL) {
             goto error;
@@ -224,6 +215,7 @@ int term_print_mode() {
     return(termctx.main_term == NULL);
 }
 
+/* TODO: non-ncurses non-buffered mode */
 int term_getkey() {
     int key;
 

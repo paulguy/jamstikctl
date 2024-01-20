@@ -51,10 +51,12 @@ typedef struct {
     jack_client_t *jack;
     int activated;
     int ready;
+    int filter_sysex;
     pthread_t pid;
 
     jack_port_t *in;
     jack_port_t *out;
+    jack_port_t *thru;
 
     char *this_inport_name;
     char *this_outport_name;
@@ -205,6 +207,10 @@ int _midi_consume_event(EventRB *e) {
     return(0);
 }
 
+/* returns 0 on success
+ *        -1 on failure
+ *         1 on sysex message complete
+ *         2 on sysex message in progress */
 int _midi_add_event(EventRB *e, size_t size, unsigned char *buf) {
     midi_event *ev;
 
@@ -216,24 +222,23 @@ int _midi_add_event(EventRB *e, size_t size, unsigned char *buf) {
     if(e->sysex) {
         ev->size += size;
         memcpy(&(ev->buffer[e->sysex]), buf, size);
-        if(buf[size-1] == 0xF7) {
-            /* if the end of the sysex command is found, it's done */
-            /* maybe need to check for 0x55 or packet size? */
-            e->sysex = 0;
-        } else {
+        /* if the end of the sysex command is not found, there's more */
+        if(buf[size-1] != 0xF7) {
             /* advance pointer */
             e->sysex += size;
             /* indicate success, but a full packet hasn't been received */
-            return(1);
+            return(2);
         }
     } else {
         ev->size = size;
         memcpy(ev->buffer, buf, size);
-        if(buf[0] == 0xF0 && buf[size-1] != 0xF7) {
+        if(buf[0] == 0xF0) {
             /* if this is part of a sysex, indicate next time to continue ingesting */
             e->sysex = size;
-            /* return now */
-            return(1);
+            if(buf[size-1] != 0xF7) {
+                /* return now */
+                return(2);
+            }
         }
     }
 
@@ -246,6 +251,11 @@ int _midi_add_event(EventRB *e, size_t size, unsigned char *buf) {
         e->next_event = 0;
     }
 
+    if(e->sysex) {
+        e->sysex = 0;
+        return(1);
+    }
+
     return(0);
 }
 
@@ -256,9 +266,12 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
 
     char *in;
     char *out;
+    char *thru;
     uint32_t i;
     int has_output = 0;
     int retval;
+
+    thru = jack_port_get_buffer(midictx.thru, nframes);
 
     /* process queued up input events */
     in = jack_port_get_buffer(midictx.in, nframes);
@@ -271,9 +284,27 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
         if(retval < 0) {
             term_print("Failed to add event.");
             return(-1);
-        }else if(retval == 0) {
+        }else if(retval == 0 || retval == 1) {
+            /* 0 is success, 1 is completed a sysex */
             has_output = 1;
-        } /* positive values indicate a partial sysex packet that is being consumed but not fully received */
+        } /* 2 indicate a partial sysex packet that is being consumed but not fully received */
+
+        /* pass through non-sysex events unconditionally, pass through sysex
+         * events if requested */
+        if(retval == 0 ||
+           ((retval == 1 || retval == 2) && !midictx.filter_sysex)) {
+            /*
+            if(jack_midi_event_write(thru, jackEvent.time,
+                                           jackEvent.buffer,
+                                           jackEvent.size)) {
+                term_print("Failed to write thru event.");
+                return(-3);
+            }
+            */
+            term_print("%d", jack_midi_event_write(thru, jackEvent.time,
+                                           jackEvent.buffer,
+                                           jackEvent.size));
+        }
     }
 
     /* process queued up output events */
@@ -340,12 +371,20 @@ int _midi_process(jack_nframes_t nframes, void *arg) {
 }
 
 int midi_write_event(size_t size, unsigned char *buffer) {
+    int ret;
+
     /* if the device closed in another thread, don't try to do anything */
     if(!midictx.activated) {
         return(-1);
     }
 
-    return(_midi_add_event(&(midictx.outEv), size, buffer));
+    ret = _midi_add_event(&(midictx.outEv), size, buffer);
+    /* don't allow to queue partial sysexes externally */
+    if(ret < 0 || ret > 1) {
+        return(-1);
+    }
+
+    return(0);
 }
 
 int midi_read_event(size_t size, unsigned char *buffer) {
@@ -467,9 +506,9 @@ int midi_ready() {
     return(midictx.ready == (_MIDI_INPORT_MASK | _MIDI_OUTPORT_MASK));
 }
 
-int midi_setup(const char *client_name,
-               const char *inport_name, const char *outport_name,
-               pthread_t pid) {
+int midi_setup(const char *client_name, const char *inport_name,
+               const char *outport_name, const char *thruport_name,
+               int filter_sysex, pthread_t pid) {
     /* jack stuff */
     jack_status_t jstatus;
     struct sigaction sa;
@@ -479,6 +518,7 @@ int midi_setup(const char *client_name,
 
     midictx.activated = 0;
     midictx.ready = 0;
+    midictx.filter_sysex = filter_sysex;
     midictx.pid = pid;
     midictx.this_inport_name = NULL;
     midictx.this_outport_name = NULL;
@@ -535,6 +575,17 @@ int midi_setup(const char *client_name,
     }
     midictx.this_outport_name = midi_copy_string(jack_port_name(midictx.out));
     if(midictx.this_outport_name == NULL) {
+        midi_cleanup();
+        return(-1);
+    }
+
+    midictx.thru = jack_port_register(midictx.jack,
+                                      thruport_name,
+                                      JACK_DEFAULT_MIDI_TYPE,
+                                      JackPortIsOutput,
+                                      0);
+    if(midictx.thru == NULL) {
+        term_print("Failed to register thru port.");
         midi_cleanup();
         return(-1);
     }

@@ -37,7 +37,7 @@
 const char JACK_NAME[] = "jamstikctl";
 const char INPORT_NAME[] = "Guitar In";
 const char OUTPORT_NAME[] = "Guitar Out";
-const char THRU_NAME[] = "Guitar Thru";
+const char THRUPORT_NAME[] = "Guitar Thru";
 
 unsigned char buffer[MIDI_MAX_BUFFER_SIZE];
 
@@ -446,16 +446,16 @@ int main(int argc, char **argv) {
         goto error_js_cleanup;
     }
 
-    /* disable the "TUI" mode for now, it's hopelessly broken */
     if(term_setup(1) < 0) {
         fprintf(stderr, "Failed to setup terminal.");
         goto error_guitar_cleanup;
     }
-    /*term_cleanup();*/
 
     term_print("Setting up JACK...");
 
-    if(midi_setup(JACK_NAME, INPORT_NAME, OUTPORT_NAME, pthread_self()) < 0) {
+    /* default to filtering sysex, otherwise the thru port isn't _that_ useful */
+    if(midi_setup(JACK_NAME, INPORT_NAME, OUTPORT_NAME, THRUPORT_NAME,
+                  1, pthread_self()) < 0) {
         term_print("Failed to set up JACK.");
         goto error_term_cleanup;
     }

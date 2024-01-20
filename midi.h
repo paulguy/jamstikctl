@@ -221,9 +221,9 @@
 void print_hex(size_t size, unsigned char *buffer);
 char *midi_copy_string(const char *src);
 
-int midi_setup(const char *client_name,
-               const char *inport_name, const char *outport_name,
-               pthread_t pid);
+int midi_setup(const char *client_name, const char *inport_name,
+               const char *outport_name, const char *thruport_name,
+               int filter_sysex, pthread_t pid);
 char *midi_find_port(const char *pattern, unsigned long flags);
 int midi_ready();
 void midi_cleanup();
